@@ -41,3 +41,35 @@ app-example
 # generated native folders
 /ios
 /android
+
+# environment variables
+.env
+.env.development
+.env.production
+.env.test
+*.env
+
+# App binaries
+*.apk
+*.aab
+*.ipa
+
+# Editor directories and files
+.idea/
+.vscode/*
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.claude/*
+
+# Windows
+Thumbs.db
+
+# testing
+coverage/
+
+#agents
+AGENTS.md
+CLAUDE.md
