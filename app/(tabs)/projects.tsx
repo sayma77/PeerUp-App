@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Alert,
@@ -10,12 +11,9 @@ import {
   View,
 } from "react-native";
 import Screen from "../../components/Screen";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import {
-  CURRENT_USER_ID,
-  Project,
-  STATUS_FILTERS
-} from "../../types/projects";
+import { Project, STATUS_FILTERS } from "../../types/projects";
 
 const PAGE_SIZE = 2;
 
@@ -65,7 +63,11 @@ const MOCK_PROJECTS: Project[] = [
 ];
 
 export default function Projects() {
+  const router = useRouter();
   const {showToast} = useToast();
+  const {user} = useAuth(); // Replaced hardcoded auth with context
+
+  const currentUserId = user?.uid || "anon"; // Fallback for safely typing IDs
 
   const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS);
   const [search, setSearch] = useState("");
@@ -138,6 +140,12 @@ export default function Projects() {
   }
 
   function handleConfirmJoin() {
+    if (!user) {
+      router.push("/(auth)/login");
+      setJoinTarget(null);
+      return;
+    }
+
     if (!joinTarget) return;
     // TODO: write a join request doc in Firestore
     setProjects((prev) =>
@@ -147,7 +155,7 @@ export default function Projects() {
               ...p,
               joinRequests: [
                 ...p.joinRequests,
-                {userId: CURRENT_USER_ID, status: "pending"},
+                {userId: currentUserId, status: "pending"},
               ],
             }
           : p,
@@ -163,14 +171,24 @@ export default function Projects() {
     skills: string[];
     maxMembers: number;
   }) {
+    // Dynamically grab user details instead of hardcoding
+    const currentName = user?.email || "You";
+    const currentUsername = user?.email?.split("@")[0] || "user";
+
     // TODO: create the project doc in Firestore
     const newProject: Project = {
       id: `p${Date.now()}`,
       title: data.title,
       description: data.description,
       status: "open",
-      creator: {id: CURRENT_USER_ID, name: "Sayma", username: "sayma"},
-      members: [{id: CURRENT_USER_ID, name: "Sayma", username: "sayma"}],
+      creator: {
+        id: currentUserId,
+        name: currentName,
+        username: currentUsername,
+      },
+      members: [
+        {id: currentUserId, name: currentName, username: currentUsername},
+      ],
       maxMembers: data.maxMembers,
       skillsRequired: data.skills,
       joinRequests: [],
@@ -206,13 +224,16 @@ export default function Projects() {
   }
 
   return (
-    <Screen user={null}>
+    <Screen user={user ? {name: user.email ?? "You"} : null}>
       <View className="px-5 pt-8 pb-4">
         <Text className="text-4xl font-extralight text-text-primary">
           Collaborative <Text className="italic text-primary">Projects</Text>
         </Text>
         <Pressable
-          onPress={() => setCreateOpen(true)}
+          onPress={() => {
+            if (!user) router.push("/(auth)/login");
+            else setCreateOpen(true);
+          }}
           className="mt-6 py-3.5 rounded-2xl bg-primary/10 border border-primary/20 flex-row items-center justify-center gap-2">
           <Feather name="plus" size={14} color="#FFB300" />
           <Text className="text-primary text-[10px] font-bold uppercase tracking-[0.2em]">
@@ -294,11 +315,15 @@ export default function Projects() {
             <ProjectCard
               key={project.id}
               project={project}
+              currentUserId={user?.uid}
               onEdit={() => setEditing(project)}
               onDelete={() => handleDelete(project)}
               onStart={() => handleStart(project)}
               onComplete={() => handleComplete(project)}
-              onJoin={() => setJoinTarget(project)}
+              onJoin={() => {
+                if (!user) router.push("/(auth)/login");
+                else setJoinTarget(project);
+              }}
             />
           ))
         )}
@@ -337,6 +362,7 @@ export default function Projects() {
 
 function ProjectCard({
   project,
+  currentUserId,
   onEdit,
   onDelete,
   onStart,
@@ -344,6 +370,7 @@ function ProjectCard({
   onJoin,
 }: {
   project: Project;
+  currentUserId?: string;
   onEdit: () => void;
   onDelete: () => void;
   onStart: () => void;
@@ -351,11 +378,14 @@ function ProjectCard({
   onJoin: () => void;
 }) {
   const isFull = project.members.length >= project.maxMembers;
-  const isCreator = project.creator.id === CURRENT_USER_ID;
-  const isMember = project.members.some((m) => m.id === CURRENT_USER_ID);
-  const myJoinRequest = project.joinRequests.find(
-    (r) => r.userId === CURRENT_USER_ID,
-  );
+
+  // Replaced hardcoded CURRENT_USER_ID with dynamic ID passed from parent
+  const isCreator = currentUserId && project.creator.id === currentUserId;
+  const isMember =
+    currentUserId && project.members.some((m) => m.id === currentUserId);
+  const myJoinRequest =
+    currentUserId &&
+    project.joinRequests.find((r) => r.userId === currentUserId);
 
   const badge = isFull
     ? {text: "FULL", color: "#ef4444", border: "rgba(239, 68, 68, 0.3)"}
@@ -499,13 +529,13 @@ function ProjectCard({
               Project Full
             </Text>
           </View>
-        ) : myJoinRequest?.status === "pending" ? (
+        ) : myJoinRequest && myJoinRequest.status === "pending" ? (
           <View className="py-3 rounded-2xl bg-bg-light border border-border items-center">
             <Text className="text-[9px] font-black uppercase tracking-widest text-text-muted">
               Request Sent
             </Text>
           </View>
-        ) : myJoinRequest?.status === "declined" ? (
+        ) : myJoinRequest && myJoinRequest.status === "declined" ? (
           <View
             className="py-3 rounded-2xl border items-center"
             style={{

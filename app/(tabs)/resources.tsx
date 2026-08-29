@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Linking,
@@ -10,9 +11,9 @@ import {
   View,
 } from "react-native";
 import Screen from "../../components/Screen";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import {
-  CURRENT_USER_ID,
   LEVEL_OPTIONS,
   Resource,
   ResourceLevel,
@@ -30,36 +31,57 @@ const MOCK_RESOURCES: Resource[] = [
     link: "https://react.dev",
     skillName: "React Native",
     level: "Beginner",
-    addedBy: { id: "u1", name: "Sayma" },
+    addedBy: {id: "u1", name: "Sayma"},
   },
   {
     id: "r2",
     title: "Firestore Data Modeling",
-    description: "How to structure collections and documents for real-time apps.",
+    description:
+      "How to structure collections and documents for real-time apps.",
     link: "https://firebase.google.com/docs/firestore",
     skillName: "Firebase",
     level: "Medium",
-    addedBy: { id: "u3", name: "Arif Khan" },
+    addedBy: {id: "u3", name: "Arif Khan"},
   },
   {
     id: "r3",
     title: "Advanced MongoDB Aggregation",
-    description: "Pipelines, indexes, and performance tuning for large datasets.",
+    description:
+      "Pipelines, indexes, and performance tuning for large datasets.",
     link: "https://www.mongodb.com/docs/manual/aggregation/",
     skillName: "MongoDB",
     level: "Hard",
-    addedBy: { id: "u4", name: "Priya Das" },
+    addedBy: {id: "u4", name: "Priya Das"},
   },
 ];
 
-const levelColors: Record<ResourceLevel, { bg: string; text: string; border: string }> = {
-  Beginner: { bg: "rgba(255,179,0,0.1)", text: "#FFB300", border: "rgba(255,179,0,0.2)" },
-  Medium: { bg: "rgba(251,191,36,0.1)", text: "#fbbf24", border: "rgba(251,191,36,0.2)" },
-  Hard: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.2)" },
+const levelColors: Record<
+  ResourceLevel,
+  {bg: string; text: string; border: string}
+> = {
+  Beginner: {
+    bg: "rgba(255,179,0,0.1)",
+    text: "#FFB300",
+    border: "rgba(255,179,0,0.2)",
+  },
+  Medium: {
+    bg: "rgba(251,191,36,0.1)",
+    text: "#fbbf24",
+    border: "rgba(251,191,36,0.2)",
+  },
+  Hard: {
+    bg: "rgba(239,68,68,0.1)",
+    text: "#ef4444",
+    border: "rgba(239,68,68,0.2)",
+  },
 };
 
 export default function Resources() {
-  const { showToast } = useToast();
+  const router = useRouter();
+  const {showToast} = useToast();
+  const {user} = useAuth(); // Replaced hardcoded auth with context
+
+  const currentUserId = user?.uid || "anon"; // Fallback for safely typing IDs
 
   const [resources, setResources] = useState<Resource[]>(MOCK_RESOURCES);
   const [search, setSearch] = useState("");
@@ -72,7 +94,9 @@ export default function Resources() {
     const q = search.trim().toLowerCase();
     return resources.filter((r) => {
       const matchesSearch =
-        !q || r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q);
+        !q ||
+        r.title.toLowerCase().includes(q) ||
+        r.description.toLowerCase().includes(q);
       const matchesSkill = !skillFilter || r.skillName === skillFilter;
       const matchesLevel = !levelFilter || r.level === levelFilter;
       return matchesSearch && matchesSkill && matchesLevel;
@@ -95,6 +119,9 @@ export default function Resources() {
     skillName: string;
     level: ResourceLevel;
   }) {
+    // Dynamically grab user details instead of hardcoding
+    const currentName = user?.email?.split("@")[0] || "User";
+
     // TODO: create the resource doc in Firestore
     const newResource: Resource = {
       id: `r${Date.now()}`,
@@ -103,7 +130,7 @@ export default function Resources() {
       link: data.link,
       skillName: data.skillName,
       level: data.level,
-      addedBy: { id: CURRENT_USER_ID, name: "Sayma" },
+      addedBy: {id: currentUserId, name: currentName},
     };
     setResources((prev) => [newResource, ...prev]);
     setShareOpen(false);
@@ -111,14 +138,17 @@ export default function Resources() {
   }
 
   return (
-    <Screen user={null}>
+    <Screen user={user ? {name: user.email ?? "You"} : null}>
       <View className="px-5 pt-8 pb-4">
         <Text className="text-4xl font-extralight text-text-primary">
           Learning <Text className="italic text-primary">Resources</Text>
         </Text>
 
         <Pressable
-          onPress={() => setShareOpen(true)}
+          onPress={() => {
+            if (!user) router.push("/(auth)/login");
+            else setShareOpen(true);
+          }}
           className="mt-6 py-3.5 rounded-2xl bg-primary/10 border border-primary/20 flex-row items-center justify-center gap-2">
           <Feather name="plus" size={14} color="#FFB300" />
           <Text className="text-primary text-[10px] font-bold uppercase tracking-[0.2em]">
@@ -188,6 +218,7 @@ export default function Resources() {
             <ResourceCard
               key={resource.id}
               resource={resource}
+              currentUserId={user?.uid}
               onDelete={() => handleDelete(resource)}
             />
           ))
@@ -281,9 +312,13 @@ function Dropdown<T extends string>({
                 className="py-4 border-b border-border flex-row justify-between items-center">
                 <Text
                   className={`text-base ${
-                    value === null ? "text-primary font-bold" : "text-text-primary"
+                    value === null
+                      ? "text-primary font-bold"
+                      : "text-text-primary"
                   }`}>
-                  {placeholder.includes("Select") ? "Clear Selection" : `All (${placeholder.replace("All ", "")})`}
+                  {placeholder.includes("Select")
+                    ? "Clear Selection"
+                    : `All (${placeholder.replace("All ", "")})`}
                 </Text>
                 {value === null && (
                   <Feather name="check" size={18} color="#FFB300" />
@@ -301,7 +336,9 @@ function Dropdown<T extends string>({
                   className="py-4 border-b border-border flex-row justify-between items-center">
                   <Text
                     className={`text-base ${
-                      value === opt ? "text-primary font-bold" : "text-text-primary"
+                      value === opt
+                        ? "text-primary font-bold"
+                        : "text-text-primary"
                     }`}>
                     {opt}
                   </Text>
@@ -320,12 +357,15 @@ function Dropdown<T extends string>({
 
 function ResourceCard({
   resource,
+  currentUserId,
   onDelete,
 }: {
   resource: Resource;
+  currentUserId?: string;
   onDelete: () => void;
 }) {
-  const isOwner = resource.addedBy.id === CURRENT_USER_ID;
+  // Check dynamically if the active user created this resource
+  const isOwner = currentUserId && resource.addedBy.id === currentUserId;
   const lc = levelColors[resource.level];
 
   return (
@@ -338,18 +378,24 @@ function ResourceCard({
         </View>
         <View
           className="px-3 py-1.5 border rounded-xl"
-          style={{ backgroundColor: lc.bg, borderColor: lc.border }}>
-          <Text className="text-[9px] font-bold uppercase tracking-widest" style={{ color: lc.text }}>
+          style={{backgroundColor: lc.bg, borderColor: lc.border}}>
+          <Text
+            className="text-[9px] font-bold uppercase tracking-widest"
+            style={{color: lc.text}}>
             {resource.level}
           </Text>
         </View>
       </View>
 
-      <Text className="text-2xl font-extralight text-text-primary mb-2">{resource.title}</Text>
+      <Text className="text-2xl font-extralight text-text-primary mb-2">
+        {resource.title}
+      </Text>
       <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4">
         By {resource.addedBy.name}
       </Text>
-      <Text className="text-sm text-text-muted leading-5 mb-6">{resource.description}</Text>
+      <Text className="text-sm text-text-muted leading-5 mb-6">
+        {resource.description}
+      </Text>
 
       <View className="flex-row items-center justify-between pt-5 border-t border-border">
         <Pressable
@@ -403,14 +449,33 @@ function ShareResourceModal({
   }
 
   function handleSubmit() {
-    if (!skillName || !level || !title.trim() || !link.trim() || !description.trim()) return;
-    onSubmit({ title: title.trim(), description: description.trim(), link: link.trim(), skillName, level });
+    if (
+      !skillName ||
+      !level ||
+      !title.trim() ||
+      !link.trim() ||
+      !description.trim()
+    )
+      return;
+    onSubmit({
+      title: title.trim(),
+      description: description.trim(),
+      link: link.trim(),
+      skillName,
+      level,
+    });
     reset();
   }
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/90 items-center justify-center px-6" onPress={onClose}>
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      onRequestClose={onClose}>
+      <Pressable
+        className="flex-1 bg-black/90 items-center justify-center px-6"
+        onPress={onClose}>
         <Pressable
           onPress={(e) => e.stopPropagation()}
           className="w-full bg-bg-medium border border-border rounded-[2.5rem] p-8 max-h-[85%]">
@@ -428,7 +493,6 @@ function ShareResourceModal({
             </Text>
 
             <View className="gap-4">
-              
               {/* Dropdowns used in Modal Form! */}
               <View className="flex-row gap-3 z-10">
                 <Dropdown
@@ -491,7 +555,9 @@ function ShareResourceModal({
                 />
               </View>
 
-              <Pressable onPress={handleSubmit} className="py-4 rounded-2xl bg-primary items-center mt-2">
+              <Pressable
+                onPress={handleSubmit}
+                className="py-4 rounded-2xl bg-primary items-center mt-2">
                 <Text className="text-black text-[10px] font-black uppercase tracking-[0.2em]">
                   Publish Resource
                 </Text>

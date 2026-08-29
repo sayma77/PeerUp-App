@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import Screen from "../../components/Screen";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { CATEGORIES, MentorDetail, SkillCard } from "../../types/skills";
 
@@ -67,12 +68,10 @@ async function fetchMentorDetail(skill: SkillCard): Promise<MentorDetail> {
   };
 }
 
-// TODO: replace with a real Firebase Auth state check
-const isLoggedIn = false;
-
 export default function Skills() {
   const router = useRouter();
   const {showToast} = useToast();
+  const {user} = useAuth(); // Replaced hardcoded auth with context
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
@@ -116,7 +115,8 @@ export default function Skills() {
   }
 
   async function handleRequest() {
-    if (!isLoggedIn) {
+    // Replaced !isLoggedIn check with context user check
+    if (!user) {
       router.push("/(auth)/login");
       return;
     }
@@ -136,7 +136,7 @@ export default function Skills() {
   }
 
   return (
-    <Screen>
+    <Screen user={user ? {name: user.email ?? "You"} : null}>
       <View className="px-5 pt-6 pb-4">
         <Text className="text-3xl font-extralight text-text-primary mb-1">
           Discover <Text className="italic text-primary">Expertise</Text>

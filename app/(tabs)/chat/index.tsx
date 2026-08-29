@@ -4,10 +4,10 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import Screen from "../../../components/Screen";
 import { Conversation } from "../../../types/chat";
+import { useAuth } from "../../../context/AuthContext";
 
 // TODO: replace with a real Firestore query — conversations where participants array-contains currentUserId,
 // ordered by lastMessageAt. Use onSnapshot for live updates instead of a one-time fetch.
-const CURRENT_USER_ID = "me";
 const MOCK_CONVERSATIONS: Conversation[] = [
   {
     id: "c1",
@@ -35,6 +35,11 @@ const MOCK_CONVERSATIONS: Conversation[] = [
 
 export default function ChatList() {
   const router = useRouter();
+  const { user } = useAuth(); // Replaced hardcoded auth with context
+
+  // Fallback to "me" just so the MOCK_CONVERSATIONS still function correctly during UI testing
+  const currentUserId = user?.uid || "me"; 
+
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -44,7 +49,11 @@ export default function ChatList() {
   }, [search]);
 
   return (
-    <Screen scroll={false} hideFooter>
+    <Screen 
+      scroll={false} 
+      hideFooter 
+      user={user ? { name: user.email ?? "You" } : null}
+    >
       <View className="px-5 pt-6 pb-4">
         <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4">
           Direct Messages
@@ -77,14 +86,20 @@ export default function ChatList() {
         }
         renderItem={({ item }) => {
           const lastMsg = item.messages[item.messages.length - 1] ?? null;
-          const unreadCount = item.messages.filter((m) => m.senderId !== CURRENT_USER_ID && !m.read).length;
+          
+          // Now correctly uses the dynamic currentUserId to determine unread status
+          const unreadCount = item.messages.filter((m) => m.senderId !== currentUserId && !m.read).length;
           const hasUnread = unreadCount > 0;
 
           return (
             <Pressable
-              onPress={() =>
-                router.push({ pathname: "/chat/[conversationId]", params: { conversationId: item.id } })
-              }
+              onPress={() => {
+                if (!user) {
+                  router.push("/(auth)/login");
+                } else {
+                  router.push({ pathname: "/chat/[conversationId]", params: { conversationId: item.id } });
+                }
+              }}
               className="flex-row items-center gap-3 p-3 rounded-2xl mb-1"
             >
               <View className="w-11 h-11 rounded-xl bg-bg-dark border border-border items-center justify-center">

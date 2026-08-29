@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 
-export default function ChatLayout() {
+export default function ClassroomsLayout() {
   return (
     <Stack
       screenOptions={{
@@ -8,7 +8,7 @@ export default function ChatLayout() {
         contentStyle: {backgroundColor: "#0A0E17"},
       }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="[conversationId]" />
+      <Stack.Screen name="[id]" options={{presentation: "card"}} />
     </Stack>
   );
 }

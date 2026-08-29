@@ -11,6 +11,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../../firebaseConfig";
 
 export default function Login() {
   const router = useRouter();
@@ -37,8 +39,8 @@ export default function Login() {
 
     setSubmitting(true);
     try {
-      // TODO: call Firebase Auth signInWithEmailAndPassword(email, password)
-      router.replace("/dashboard");
+      await signInWithEmailAndPassword(auth, email, password);
+      router.replace("/");
     } catch (err) {
       setError("Invalid email or password.");
     } finally {
@@ -48,15 +50,18 @@ export default function Login() {
 
   return (
     <KeyboardAvoidingView
-      style={{flex: 1, backgroundColor: "#070A10"}}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      style={{ flex: 1, backgroundColor: "#070A10" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <ScrollView
-        contentContainerStyle={{flexGrow: 1}}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View className="px-5 pt-10">
           <Pressable
             onPress={handleBack}
-            className="w-10 h-10 rounded-xl border border-border items-center justify-center">
+            className="w-10 h-10 rounded-xl border border-border items-center justify-center"
+          >
             <Feather name="arrow-left" size={18} color="#64748B" />
           </Pressable>
         </View>
@@ -109,7 +114,8 @@ export default function Login() {
                 />
                 <Pressable
                   onPress={() => setShowPassword((v) => !v)}
-                  className="absolute right-4">
+                  className="absolute right-4"
+                >
                   <Feather
                     name={showPassword ? "eye-off" : "eye"}
                     size={18}
@@ -122,12 +128,14 @@ export default function Login() {
             <Pressable
               onPress={handleSubmit}
               disabled={submitting}
-              className="mt-8">
+              className="mt-8"
+            >
               <LinearGradient
                 colors={["#D97706", "#F59E0B"]}
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 0}}
-                className="py-4 rounded-xl items-center">
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                className="py-4 rounded-xl items-center"
+              >
                 <Text className="text-white text-sm font-bold uppercase tracking-widest">
                   {submitting ? "Signing In..." : "Sign In"}
                 </Text>

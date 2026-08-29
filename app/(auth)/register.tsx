@@ -1,6 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, useRouter } from "expo-router";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -11,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { auth, db } from "../../firebaseConfig";
 
 const EMAIL_REGEX = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
 
@@ -129,12 +132,29 @@ export default function Register() {
 
     setSubmitting(true);
     try {
-      // TODO: call Firebase Auth createUserWithEmailAndPassword(email, password),
-      // then write { name, username, email } to the `users` collection in Firestore
-      // using the returned uid as the document id.
-      router.replace("/dashboard");
-    } catch (err) {
-      setFormError("Something went wrong creating your account.");
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password,
+      );
+      const uid = userCredential.user.uid;
+
+      await setDoc(doc(db, "users", uid), {
+        name,
+        username,
+        email,
+        createdAt: serverTimestamp(),
+      });
+
+      router.replace("/");
+    } catch (err: any) {
+      if (err.code === "auth/email-already-in-use") {
+        setFormError("That email is already registered.");
+      } else if (err.code === "auth/weak-password") {
+        setFormError("Password is too weak.");
+      } else {
+        setFormError("Something went wrong creating your account.");
+      }
     } finally {
       setSubmitting(false);
     }
