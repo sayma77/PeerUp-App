@@ -21,12 +21,9 @@ export type MentorDetail = {
 };
 
 export const CATEGORIES = [
-  "Technology",
-  "Design",
+  "Tech",
+  "Creative",
+  "Languages",
   "Business",
-  "Music",
-  "Language",
-  "Cooking",
-  "Fitness",
-  "Other",
+  "Lifestyle",
 ];

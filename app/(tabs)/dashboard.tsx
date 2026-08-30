@@ -1,8 +1,11 @@
+import { submitSkillReview } from "@/services/reviewsService";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -12,7 +15,20 @@ import {
   View,
 } from "react-native";
 import Screen from "../../components/Screen";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import { db } from "../../firebaseConfig";
+import {
+  fetchIncomingRequests,
+  fetchOutgoingRequests,
+  updateRequestStatus,
+} from "../../services/requestsService";
+import {
+  addSkill,
+  deleteSkill,
+  editSkill,
+  fetchMySkills,
+} from "../../services/skillsService";
 import {
   CATEGORIES,
   IncomingRequest,
@@ -22,40 +38,12 @@ import {
   RequestStatus,
 } from "../../types/dashboard";
 
-// TODO: replace with real data from Firestore (users/{uid}, requests where mentor==uid, etc.)
+// TODO: replace with real data from Firestore (requests where mentor==uid,
+// requests where requester==uid, projects where creator==uid). These three
+// stay mocked until we build Requests/Reviews/Projects — only "My Skills"
+// below is wired to Firestore so far.
 const MOCK_USER = {name: "Sayma", rating: 4.7, reviewCount: 12};
-const MOCK_INCOMING: IncomingRequest[] = [
-  {
-    id: "r1",
-    skillName: "React Basics",
-    requesterName: "Jamal Uddin",
-    status: "pending",
-  },
-  {
-    id: "r2",
-    skillName: "Guitar Chords",
-    requesterName: "Priya Das",
-    status: "accepted",
-  },
-];
-const MOCK_OUTGOING: OutgoingRequest[] = [
-  {
-    id: "o1",
-    skillName: "Photography 101",
-    mentorId: "m1",
-    skillId: "s1",
-    mentorName: "Arif Khan",
-    status: "completed",
-  },
-];
-const MOCK_SKILLS: MySkill[] = [
-  {
-    id: "s1",
-    name: "React Native",
-    category: "Technology",
-    description: "Building mobile apps with Expo",
-  },
-];
+
 const MOCK_PROJECTS: MyProject[] = [
   {
     id: "p1",
@@ -83,16 +71,75 @@ const TABS: {key: Tab; label: string; icon: keyof typeof Feather.glyphMap}[] = [
 export default function Dashboard() {
   const router = useRouter();
   const {showToast} = useToast();
+  const {user} = useAuth();
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [incoming, setIncoming] = useState(MOCK_INCOMING);
-  const [outgoing, setOutgoing] = useState(MOCK_OUTGOING);
-  const [skills, setSkills] = useState(MOCK_SKILLS);
+  const [incoming, setIncoming] = useState<IncomingRequest[]>([]);
+  const [outgoing, setOutgoing] = useState<OutgoingRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
   const [projects, setProjects] = useState(MOCK_PROJECTS);
+
+  // ── My Skills: real Firestore state ─────────────────────────────────
+  const [skills, setSkills] = useState<MySkill[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(true);
+  const [savingSkill, setSavingSkill] = useState(false);
 
   const [addSkillOpen, setAddSkillOpen] = useState(false);
   const [editSkillOpen, setEditSkillOpen] = useState<MySkill | null>(null);
   const [reviewOpen, setReviewOpen] = useState<OutgoingRequest | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setSkills([]);
+      setLoadingSkills(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingSkills(true);
+      try {
+        const data = await fetchMySkills(user.uid);
+        if (!cancelled) setSkills(data);
+      } catch (err) {
+        console.error("Failed to load my skills:", err);
+      } finally {
+        if (!cancelled) setLoadingSkills(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setIncoming([]);
+      setOutgoing([]);
+      setLoadingRequests(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingRequests(true);
+      try {
+        const [inc, out] = await Promise.all([
+          fetchIncomingRequests(user.uid),
+          fetchOutgoingRequests(user.uid),
+        ]);
+        if (!cancelled) {
+          setIncoming(inc);
+          setOutgoing(out);
+        }
+      } catch (err) {
+        console.error("Failed to load requests:", err);
+      } finally {
+        if (!cancelled) setLoadingRequests(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const pendingProjectRequestCount = projects.reduce(
     (count, p) =>
@@ -101,14 +148,21 @@ export default function Dashboard() {
   );
 
   async function updateIncomingStatus(id: string, status: RequestStatus) {
-    // TODO: PATCH the request doc in Firestore
-    if (status === "declined") {
-      setIncoming((prev) => prev.filter((r) => r.id !== id));
-      showToast("Request removed", "error");
-      return;
+    try {
+      await updateRequestStatus(id, status);
+      if (status === "declined") {
+        setIncoming((prev) => prev.filter((r) => r.id !== id));
+        showToast("Request removed", "error");
+        return;
+      }
+      setIncoming((prev) =>
+        prev.map((r) => (r.id === id ? {...r, status} : r)),
+      );
+      showToast(`Request ${status}!`);
+    } catch (err) {
+      console.error("Failed to update request:", err);
+      showToast("Failed to update request", "error");
     }
-    setIncoming((prev) => prev.map((r) => (r.id === id ? {...r, status} : r)));
-    showToast(`Request ${status}!`);
   }
 
   function handleDeleteSkill(skill: MySkill) {
@@ -120,10 +174,15 @@ export default function Dashboard() {
         {
           text: "Remove",
           style: "destructive",
-          onPress: () => {
-            // TODO: DELETE the skill doc in Firestore
-            setSkills((prev) => prev.filter((s) => s.id !== skill.id));
-            showToast("Skill removed");
+          onPress: async () => {
+            try {
+              await deleteSkill(skill.id);
+              setSkills((prev) => prev.filter((s) => s.id !== skill.id));
+              showToast("Skill removed");
+            } catch (err) {
+              console.error("Failed to delete skill:", err);
+              showToast("Failed to remove skill", "error");
+            }
           },
         },
       ],
@@ -131,7 +190,7 @@ export default function Dashboard() {
   }
 
   function handleAcceptProjectRequest(projectId: string, userId: string) {
-    // TODO: update joinRequest status in Firestore
+    // TODO: update joinRequest status in Firestore (Projects feature)
     setProjects((prev) =>
       prev.map((p) =>
         p.id === projectId
@@ -226,6 +285,7 @@ export default function Dashboard() {
         {activeTab === "my-skills" && (
           <MySkillsTab
             skills={skills}
+            loading={loadingSkills}
             onAdd={() => setAddSkillOpen(true)}
             onEdit={(skill) => setEditSkillOpen(skill)}
             onDelete={handleDeleteSkill}
@@ -287,35 +347,87 @@ export default function Dashboard() {
 
       <AddSkillModal
         visible={addSkillOpen}
+        saving={savingSkill}
         onClose={() => setAddSkillOpen(false)}
-        onSubmit={(skill) => {
-          // TODO: POST to Firestore, use returned doc id
-          setSkills((prev) => [...prev, {...skill, id: `s${Date.now()}`}]);
-          setAddSkillOpen(false);
-          showToast("Skill added to your profile!");
+        onSubmit={async (skill) => {
+          if (!user) {
+            router.push("/(auth)/login");
+            return;
+          }
+          setSavingSkill(true);
+          try {
+            const meSnap = await getDoc(doc(db, "users", user.uid));
+            const mentorName = meSnap.exists() ? meSnap.data().name : "You";
+
+            const docRef = await addSkill({
+              ...skill,
+              description: skill.description || "",
+              mentorId: user.uid,
+              mentorName,
+            });
+            setSkills((prev) => [{id: docRef.id, ...skill}, ...prev]);
+            setAddSkillOpen(false);
+            showToast("Skill added to your profile!");
+          } catch (err) {
+            console.error("Failed to add skill:", err);
+            showToast("Failed to add skill", "error");
+          } finally {
+            setSavingSkill(false);
+          }
         }}
       />
 
       <EditSkillModal
         skill={editSkillOpen}
+        saving={savingSkill}
         onClose={() => setEditSkillOpen(null)}
-        onSubmit={(updated) => {
-          // TODO: update the skill doc in Firestore
-          setSkills((prev) =>
-            prev.map((s) => (s.id === updated.id ? updated : s)),
-          );
-          setEditSkillOpen(null);
-          showToast("Skill updated!");
+        onSubmit={async (updated) => {
+          setSavingSkill(true);
+          try {
+            await editSkill(updated.id, {
+              name: updated.name,
+              category: updated.category,
+              description: updated.description || "",
+            });
+            setSkills((prev) =>
+              prev.map((s) => (s.id === updated.id ? updated : s)),
+            );
+            setEditSkillOpen(null);
+            showToast("Skill updated!");
+          } catch (err) {
+            console.error("Failed to update skill:", err);
+            showToast("Failed to update skill", "error");
+          } finally {
+            setSavingSkill(false);
+          }
         }}
       />
 
       <ReviewModal
         request={reviewOpen}
         onClose={() => setReviewOpen(null)}
-        onSubmit={() => {
-          // TODO: POST review to Firestore
-          setReviewOpen(null);
-          showToast("Review submitted!");
+        onSubmit={async (rating, comment) => {
+          if (!user || !reviewOpen) return;
+          try {
+            const meSnap = await getDoc(doc(db, "users", user.uid));
+            const reviewerName = meSnap.exists()
+              ? meSnap.data().name
+              : "Someone";
+            await submitSkillReview({
+              reviewerId: user.uid,
+              reviewerName,
+              mentorId: reviewOpen.mentorId,
+              skillId: reviewOpen.skillId,
+              skillName: reviewOpen.skillName,
+              rating,
+              comment,
+            });
+            setReviewOpen(null);
+            showToast("Review submitted!");
+          } catch (err) {
+            console.error("Failed to submit review:", err);
+            showToast("Failed to submit review", "error");
+          }
         }}
       />
     </Screen>
@@ -522,11 +634,13 @@ function SmallButton({
 
 function MySkillsTab({
   skills,
+  loading,
   onAdd,
   onEdit,
   onDelete,
 }: {
   skills: MySkill[];
+  loading: boolean;
   onAdd: () => void;
   onEdit: (skill: MySkill) => void;
   onDelete: (skill: MySkill) => void;
@@ -549,7 +663,14 @@ function MySkillsTab({
         </Pressable>
       </View>
 
-      {skills.length === 0 ? (
+      {loading ? (
+        <View className="items-center py-10 gap-3">
+          <ActivityIndicator color="#FFB300" />
+          <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
+            Loading Skills...
+          </Text>
+        </View>
+      ) : skills.length === 0 ? (
         <View className="p-10 items-center">
           <Feather
             name="zap"
@@ -762,10 +883,12 @@ function ProjectRequestsTab({
 
 function AddSkillModal({
   visible,
+  saving,
   onClose,
   onSubmit,
 }: {
   visible: boolean;
+  saving: boolean;
   onClose: () => void;
   onSubmit: (skill: Omit<MySkill, "id">) => void;
 }) {
@@ -821,13 +944,14 @@ function AddSkillModal({
             </FormField>
             <Pressable
               onPress={() => {
-                if (!name.trim()) return;
+                if (!name.trim() || saving) return;
                 onSubmit({name, category, description});
                 reset();
               }}
+              disabled={saving}
               className="bg-primary py-3.5 rounded-xl items-center mt-2">
               <Text className="text-[10px] font-bold uppercase tracking-widest text-bg-light">
-                Confirm & Add
+                {saving ? "Saving..." : "Confirm & Add"}
               </Text>
             </Pressable>
           </View>
@@ -839,21 +963,18 @@ function AddSkillModal({
 
 function EditSkillModal({
   skill,
+  saving,
   onClose,
   onSubmit,
 }: {
   skill: MySkill | null;
+  saving: boolean;
   onClose: () => void;
   onSubmit: (skill: MySkill) => void;
 }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState("");
-
-  // Sync fields whenever a new skill is opened
-  if (skill && name === "" && skill.name !== "") {
-    // simple one-time sync on open; fine for this scale of form
-  }
 
   function openWith(s: MySkill) {
     setName(s.name);
@@ -911,12 +1032,13 @@ function EditSkillModal({
               </Pressable>
               <Pressable
                 onPress={() => {
-                  if (!skill) return;
+                  if (!skill || saving) return;
                   onSubmit({...skill, name, category, description});
                 }}
+                disabled={saving}
                 className="flex-1 bg-primary py-3.5 rounded-xl items-center">
                 <Text className="text-[10px] font-bold uppercase tracking-widest text-bg-light">
-                  Save Changes
+                  {saving ? "Saving..." : "Save Changes"}
                 </Text>
               </Pressable>
             </View>

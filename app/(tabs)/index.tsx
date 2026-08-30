@@ -5,18 +5,6 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import Screen from "../../components/Screen";
 import { useAuth } from "../../context/AuthContext";
 
-// TODO: replace with real categories fetched from Firestore (or a fixed list backed by skill counts)
-const CATEGORIES: {name: string; icon: keyof typeof Feather.glyphMap}[] = [
-  {name: "Technology", icon: "cpu"},
-  {name: "Design", icon: "pen-tool"},
-  {name: "Music", icon: "music"},
-  {name: "Language", icon: "globe"},
-  {name: "Business", icon: "briefcase"},
-  {name: "Fitness", icon: "activity"},
-  {name: "Art", icon: "image"},
-  {name: "Cooking", icon: "coffee"},
-];
-
 // TODO: replace with real top-rated mentors fetched from Firestore
 const TOP_MENTORS = [
   {id: "m1", name: "Arif Khan", skill: "React Native", rating: 4.9},
@@ -127,27 +115,6 @@ export default function Home() {
         )}
       </View>
 
-      {/* Categories */}
-      <View className="mt-9">
-        <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted opacity-60 px-6 mb-3">
-          Categories
-        </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{paddingHorizontal: 24, gap: 10}}>
-          {CATEGORIES.map((cat) => (
-            <Link key={cat.name} href="/(tabs)/skills" asChild>
-              <Pressable className="flex-row items-center gap-2 px-4 py-2.5 rounded-full border border-border bg-bg-medium">
-                <Feather name={cat.icon} size={14} color="#FFB300" />
-                <Text className="text-xs font-medium text-text-primary">
-                  {cat.name}
-                </Text>
-              </Pressable>
-            </Link>
-          ))}
-        </ScrollView>
-      </View>
 
       {/* Popular skills */}
       <View className="mt-9 mb-10">

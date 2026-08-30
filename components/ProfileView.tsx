@@ -15,11 +15,13 @@ import {
     Review,
     Skill,
 } from "../types/profile";
+import { updatePinnedBadges } from "../services/profileService";
 
 const BADGE_LIMIT = 4;
 
 type ProfileViewProps = {
   profileUser: ProfileUser;
+  uid: string;
   isOwnProfile: boolean;
   offeredSkills: Skill[];
   learningSessions: LearningSession[];
@@ -30,6 +32,7 @@ type ProfileViewProps = {
 
 export default function ProfileView({
   profileUser,
+  uid,
   isOwnProfile,
   offeredSkills,
   learningSessions,
@@ -56,7 +59,9 @@ export default function ProfileView({
     setPinnedIds((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
-      // TODO: POST { pinnedBadges: [...next] } to Firestore (users/{uid})
+      updatePinnedBadges(uid, Array.from(next)).catch((e) =>
+        console.error("Failed to update pinned badges", e),
+      );
       return next;
     });
   }

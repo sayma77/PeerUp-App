@@ -73,3 +73,5 @@ coverage/
 #agents
 AGENTS.md
 CLAUDE.md
+
+scripts/serviceAccountKey.json

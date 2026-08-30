@@ -1,6 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { doc, getDoc } from "firebase/firestore";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -13,65 +15,24 @@ import {
 import Screen from "../../components/Screen";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import { db } from "../../firebaseConfig";
+import {
+  fetchMentorDetail,
+  fetchSkills,
+  sendSkillRequest,
+} from "../../services/skillsService";
 import { CATEGORIES, MentorDetail, SkillCard } from "../../types/skills";
 
 const PAGE_SIZE = 2;
 
-// TODO: replace with a real Firestore query on the `skills` collection
-const MOCK_SKILLS: SkillCard[] = [
-  {
-    id: "s1",
-    name: "React Native",
-    category: "Technology",
-    description: "Build cross-platform mobile apps with Expo.",
-    mentorId: "m1",
-    mentorName: "Arif Khan",
-  },
-  {
-    id: "s2",
-    name: "Guitar Basics",
-    category: "Music",
-    description: "Learn chords, strumming, and your first songs.",
-    mentorId: "m2",
-    mentorName: "Priya Das",
-  },
-  {
-    id: "s3",
-    name: "UI Design",
-    category: "Design",
-    description: "Design clean, usable interfaces with Figma.",
-    mentorId: "m3",
-    mentorName: "Nadia Islam",
-  },
-  {
-    id: "s4",
-    name: "Public Speaking",
-    category: "Business",
-    description: "Build confidence presenting to any audience.",
-    mentorId: "m4",
-    mentorName: "Jamal Uddin",
-  },
-];
-
-// TODO: replace with a real Firestore fetch (users/{mentorId} + requests where requester==me & mentor==mentorId)
-async function fetchMentorDetail(skill: SkillCard): Promise<MentorDetail> {
-  await new Promise((r) => setTimeout(r, 400));
-  return {
-    id: skill.mentorId,
-    name: skill.mentorName,
-    username: skill.mentorName.toLowerCase().replace(/\s+/g, ""),
-    intro: "Passionate about teaching and lifelong learning.",
-    bio: "I've been mentoring on PeerUp for a while and love helping people pick up new skills.",
-    rating: 4.6,
-    reviewCount: 8,
-    requestStatus: "none",
-  };
-}
-
 export default function Skills() {
   const router = useRouter();
   const {showToast} = useToast();
-  const {user} = useAuth(); // Replaced hardcoded auth with context
+  const {user} = useAuth();
+
+  const [skills, setSkills] = useState<SkillCard[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
@@ -82,9 +43,31 @@ export default function Skills() {
   const [loadingMentor, setLoadingMentor] = useState(false);
   const [sendingRequest, setSendingRequest] = useState(false);
 
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        setLoadingSkills(true);
+        setLoadError(false);
+        try {
+          const data = await fetchSkills();
+          if (!cancelled) setSkills(data);
+        } catch (err) {
+          console.error("Failed to load skills:", err);
+          if (!cancelled) setLoadError(true);
+        } finally {
+          if (!cancelled) setLoadingSkills(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim();
-    return MOCK_SKILLS.filter((skill) => {
+    return skills.filter((skill) => {
       const matchesTerm =
         !term ||
         skill.name.toLowerCase().includes(term) ||
@@ -92,7 +75,7 @@ export default function Skills() {
       const matchesCategory = category === "All" || skill.category === category;
       return matchesTerm && matchesCategory;
     });
-  }, [search, category]);
+  }, [search, category, skills]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasMore = filtered.length > visibleCount;
@@ -102,8 +85,11 @@ export default function Skills() {
     setLoadingMentor(true);
     setMentor(null);
     try {
-      const detail = await fetchMentorDetail(skill);
+      const detail = await fetchMentorDetail(skill, user?.uid ?? null);
       setMentor(detail);
+    } catch (err) {
+      console.error("Failed to load mentor detail:", err);
+      setMentor(null);
     } finally {
       setLoadingMentor(false);
     }
@@ -115,7 +101,6 @@ export default function Skills() {
   }
 
   async function handleRequest() {
-    // Replaced !isLoggedIn check with context user check
     if (!user) {
       router.push("/(auth)/login");
       return;
@@ -124,12 +109,21 @@ export default function Skills() {
 
     setSendingRequest(true);
     try {
-      // TODO: POST a new doc to the `requests` collection in Firestore
-      await new Promise((r) => setTimeout(r, 400));
+      const meSnap = await getDoc(doc(db, "users", user.uid));
+      const requesterName = meSnap.exists() ? meSnap.data().name : "Someone";
+
+      await sendSkillRequest({
+        requesterId: user.uid,
+        requesterName,
+        mentorId: mentor.id,
+        skillId: modalSkill.id,
+        skillName: modalSkill.name,
+      });
+
       setMentor({...mentor, requestStatus: "pending"});
       showToast(`Request sent to ${mentor.name}!`);
-    } catch {
-      showToast("Failed to send request", "error");
+    } catch (err: any) {
+      showToast(err?.message ?? "Failed to send request", "error");
     } finally {
       setSendingRequest(false);
     }
@@ -194,7 +188,18 @@ export default function Skills() {
       </ScrollView>
 
       <View className="px-5 gap-4">
-        {visible.length === 0 ? (
+        {loadingSkills ? (
+          <View className="items-center py-16 gap-3">
+            <ActivityIndicator color="#FFB300" />
+            <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
+              Loading Skills...
+            </Text>
+          </View>
+        ) : loadError ? (
+          <Text className="text-center text-sm text-red-400 py-10">
+            Couldn't load skills. Pull to refresh or try again shortly.
+          </Text>
+        ) : visible.length === 0 ? (
           <Text className="text-center text-sm text-text-muted py-10">
             No skills match your search.
           </Text>

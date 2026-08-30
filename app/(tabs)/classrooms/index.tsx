@@ -1,72 +1,28 @@
 import { Feather } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { Link } from "expo-router";
-import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { doc, getDoc } from "firebase/firestore";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import CreateClassModal from "../../../components/CreateClassModal";
 import Screen from "../../../components/Screen";
 import { useAuth } from "../../../context/AuthContext";
-
-type ClassStatus = "live" | "upcoming" | "completed";
-
-interface LiveClass {
-  id: string;
-  title: string;
-  topicTags: string[];
-  mentor: string;
-  startTime: string;
-  maxCapacity: number;
-  registered: number;
-  platform: "Google Meet" | "Zoom" | "MS Teams" | "Discord";
-  status: ClassStatus;
-}
-
-// TODO: replace with real classes fetched from Firestore (classes collection)
-const MOCK_CLASSES: LiveClass[] = [
-  {
-    id: "c1",
-    title: "React Native Basics: Building Your First Screen",
-    topicTags: ["Technology"],
-    mentor: "Arif Khan",
-    startTime: "Live now",
-    maxCapacity: 30,
-    registered: 18,
-    platform: "Google Meet",
-    status: "live",
-  },
-  {
-    id: "c2",
-    title: "Intro to UI Design Systems",
-    topicTags: ["Design"],
-    mentor: "Priya Das",
-    startTime: "Tomorrow, 7:00 PM",
-    maxCapacity: 20,
-    registered: 6,
-    platform: "Zoom",
-    status: "upcoming",
-  },
-  {
-    id: "c3",
-    title: "Guitar Chords for Beginners",
-    topicTags: ["Music"],
-    mentor: "Jamal Uddin",
-    startTime: "Aug 31, 6:00 PM",
-    maxCapacity: 15,
-    registered: 15,
-    platform: "Discord",
-    status: "upcoming",
-  },
-  {
-    id: "c4",
-    title: "Pitch Deck Teardown",
-    topicTags: ["Business"],
-    mentor: "Rafi Islam",
-    startTime: "Aug 20, 2026",
-    maxCapacity: 25,
-    registered: 22,
-    platform: "MS Teams",
-    status: "completed",
-  },
-];
+import { useToast } from "../../../context/ToastContext";
+import { db } from "../../../firebaseConfig";
+import {
+  ClassPlatform,
+  ClassStatus,
+  createClass,
+  fetchClasses,
+  formatStartTime,
+  LiveClass,
+} from "../../../services/classesService";
 
 const FILTERS: {key: ClassStatus; label: string}[] = [
   {key: "live", label: "Live Now"},
@@ -74,19 +30,89 @@ const FILTERS: {key: ClassStatus; label: string}[] = [
   {key: "completed", label: "Past"},
 ];
 
-const TOPICS = ["Technology", "Design", "Music", "Business", "Language"];
+// NOTE: kept separate from the Skills CATEGORIES list on purpose for now —
+// class topics and skill categories are different domains ("Language" here
+// vs "Languages" for skills). Worth deciding later whether these should be
+// the same taxonomy; if so, same fix as before: one shared constant both
+// import from.
+const TOPICS = ["Tech", "Creative", "Languages", "Business", "Lifestyle"];
 
 export default function LiveClassrooms() {
   const {user} = useAuth();
+  const {showToast} = useToast();
+
+  const [classes, setClasses] = useState<LiveClass[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState<ClassStatus>("live");
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  const filtered = MOCK_CLASSES.filter(
+  // Refetch on focus, same reasoning as the Skills tab — a newly created
+  // class should show up without needing a full app reload.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        setLoading(true);
+        setLoadError(false);
+        try {
+          const data = await fetchClasses();
+          if (!cancelled) setClasses(data);
+        } catch (err) {
+          console.error("Failed to load classes:", err);
+          if (!cancelled) setLoadError(true);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  const filtered = classes.filter(
     (c) =>
       c.status === statusFilter &&
       (!topicFilter || c.topicTags.includes(topicFilter)),
   );
+
+  async function handleCreateClass(params: {
+    title: string;
+    topicTags: string[];
+    scheduledAt: Date;
+    maxCapacity: number;
+    platform: ClassPlatform;
+    conferenceLink: string;
+  }) {
+    if (!user) return;
+    setCreating(true);
+    try {
+      const meSnap = await getDoc(doc(db, "users", user.uid));
+      const mentorName = meSnap.exists() ? meSnap.data().name : "You";
+
+      await createClass({
+        ...params,
+        mentorId: user.uid,
+        mentorName,
+      });
+
+      setCreateModalOpen(false);
+      showToast("Class created!");
+
+      // refresh the list immediately rather than waiting for next focus
+      const data = await fetchClasses();
+      setClasses(data);
+    } catch (err) {
+      console.error("Failed to create class:", err);
+      showToast("Failed to create class", "error");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <Screen user={user ? {name: user.email ?? "You"} : null}>
@@ -166,7 +192,18 @@ export default function LiveClassrooms() {
 
       {/* Class list */}
       <View className="px-6 mt-6 mb-14 gap-4">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <View className="items-center py-16 gap-3">
+            <ActivityIndicator color="#FFB300" />
+            <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
+              Loading Classes...
+            </Text>
+          </View>
+        ) : loadError ? (
+          <Text className="text-center text-sm text-red-400 py-10">
+            Couldn't load classes. Pull to refresh or try again shortly.
+          </Text>
+        ) : filtered.length === 0 ? (
           <View className="items-center py-16">
             <Feather name="video-off" size={28} color="#64748B" />
             <Text className="text-sm text-text-muted mt-3">
@@ -180,14 +217,16 @@ export default function LiveClassrooms() {
 
       <CreateClassModal
         visible={createModalOpen}
+        saving={creating}
         onClose={() => setCreateModalOpen(false)}
+        onSubmit={handleCreateClass}
       />
     </Screen>
   );
 }
 
 function ClassCard({liveClass}: {liveClass: LiveClass}) {
-  const full = liveClass.registered >= liveClass.maxCapacity;
+  const full = liveClass.registeredCount >= liveClass.maxCapacity;
 
   return (
     <Link
@@ -203,7 +242,7 @@ function ClassCard({liveClass}: {liveClass: LiveClass}) {
               className={`text-[10px] font-bold uppercase tracking-widest ${
                 liveClass.status === "live" ? "text-red-500" : "text-text-muted"
               }`}>
-              {liveClass.status === "live" ? "Live" : liveClass.startTime}
+              {formatStartTime(liveClass)}
             </Text>
           </View>
           <Text className="text-[10px] text-text-muted">
@@ -217,7 +256,7 @@ function ClassCard({liveClass}: {liveClass: LiveClass}) {
           {liveClass.title}
         </Text>
         <Text className="text-xs text-text-muted mb-3">
-          by {liveClass.mentor}
+          by {liveClass.mentorName}
         </Text>
 
         <View className="flex-row items-center justify-between">
@@ -231,7 +270,7 @@ function ClassCard({liveClass}: {liveClass: LiveClass}) {
             ))}
           </View>
           <Text className="text-[10px] text-text-muted">
-            {liveClass.registered}/{liveClass.maxCapacity}
+            {liveClass.registeredCount}/{liveClass.maxCapacity}
             {full ? " · Full" : ""}
           </Text>
         </View>

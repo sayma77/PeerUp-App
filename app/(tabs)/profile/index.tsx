@@ -1,53 +1,85 @@
+// profile/index.tsx
+import { useEffect, useState } from "react";
 import ProfileView from "../../../components/ProfileView";
 import Screen from "../../../components/Screen";
+import { useAuth } from "../../../context/AuthContext";
 import { useToast } from "../../../context/ToastContext";
-
-// TODO: replace all of this with real data fetched from Firestore for the logged-in user
-const MOCK_PROFILE_USER = {
-  id: "me",
-  name: "Sayma",
-  username: "sayma",
-  intro: "Teaching React Native to learn UI design",
-  bio: "CSE student passionate about mobile development and design systems.",
-  pinnedBadges: [],
-};
-const MOCK_OFFERED = [{id: "s1", name: "React Native", category: "Technology"}];
-const MOCK_LEARNING = [
-  {id: "l1", skill: {id: "s2", name: "UI Design", category: "Design"}},
-];
-const MOCK_COMPLETED = [
-  {
-    id: "c1",
-    skill: {id: "s3", name: "Guitar Basics", category: "Music"},
-    mentor: {name: "Arif Khan"},
-  },
-];
-const MOCK_REVIEWS = [
-  {
-    id: "r1",
-    student: {name: "Jamal Uddin"},
-    skill: {name: "React Native"},
-    rating: 5,
-    comment: "Explained everything really clearly, great mentor!",
-    createdAt: new Date().toISOString(),
-  },
-];
+import {
+  fetchCompletedSessions, fetchLearningSessions, fetchOfferedSkills,
+  fetchProfileByUid, fetchReviews, updateProfile,
+} from "../../../services/profileService";
+import { CompletedSession, LearningSession, ProfileUser, Review, Skill } from "../../../types/profile";
+import { ActivityIndicator, View } from "react-native";
 
 export default function MyProfile() {
-  const {showToast} = useToast();
+  const { showToast } = useToast();
+  const { user } = useAuth();
+
+  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [offered, setOffered] = useState<Skill[]>([]);
+  const [learning, setLearning] = useState<LearningSession[]>([]);
+  const [completed, setCompleted] = useState<CompletedSession[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  console.log("MyProfile render, user:", user);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [profile, off, learn, comp, rev] = await Promise.all([
+          fetchProfileByUid(user.uid),
+          fetchOfferedSkills(user.uid),
+          fetchLearningSessions(user.uid),
+          fetchCompletedSessions(user.uid),
+          fetchReviews(user.uid),
+        ]);
+        console.log("fetched profile:", profile);
+        if (cancelled) return;
+        setProfileUser(profile);
+        setOffered(off);
+        setLearning(learn);
+        setCompleted(comp);
+        setReviews(rev);
+      } catch (e) {
+        console.error("Failed to load profile", e);
+        showToast("Couldn't load your profile", "error");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  if (loading || !profileUser || !user) {
+    return (
+      <Screen>
+        <View className="flex-1 items-center justify-center pt-20">
+          <ActivityIndicator color="#FFB300" />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
-    <Screen user={{name: MOCK_PROFILE_USER.name}}>
+    <Screen user={{ name: profileUser.name }}>
       <ProfileView
-        profileUser={MOCK_PROFILE_USER}
+        profileUser={profileUser}
+        uid={user.uid}
         isOwnProfile
-        offeredSkills={MOCK_OFFERED}
-        learningSessions={MOCK_LEARNING}
-        completedSessions={MOCK_COMPLETED}
-        reviews={MOCK_REVIEWS}
-        onSaveProfile={(data) => {
-          // TODO: update the users/{uid} doc in Firestore with data
-          showToast("Profile updated!");
+        offeredSkills={offered}
+        learningSessions={learning}
+        completedSessions={completed}
+        reviews={reviews}
+        onSaveProfile={async (data) => {
+          try {
+            await updateProfile(user.uid, data);
+            setProfileUser({ ...profileUser, ...data });
+            showToast("Profile updated!");
+          } catch (e) {
+            console.error("Failed to save profile", e);
+            showToast("Couldn't save changes", "error");
+          }
         }}
       />
     </Screen>

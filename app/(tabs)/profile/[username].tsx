@@ -1,48 +1,104 @@
 import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
 import ProfileView from "../../../components/ProfileView";
 import Screen from "../../../components/Screen";
-
-// TODO: replace with a real Firestore query: users where username == params.username
-const MOCK_PUBLIC_USER = {
-  id: "u2",
-  name: "Arif Khan",
-  username: "arifkhan",
-  intro: "Guitar teacher & backend developer",
-  bio: "I've been playing guitar for 10 years and love helping beginners get started.",
-  pinnedBadges: [],
-};
-const MOCK_OFFERED = [{id: "s4", name: "Guitar Basics", category: "Music"}];
-const MOCK_LEARNING: any[] = [];
-const MOCK_COMPLETED = [
-  {
-    id: "c2",
-    skill: {id: "s5", name: "Node.js", category: "Technology"},
-    mentor: {name: "Priya Das"},
-  },
-];
-const MOCK_REVIEWS = [
-  {
-    id: "r2",
-    student: {name: "Sayma"},
-    skill: {name: "Guitar Basics"},
-    rating: 5,
-    comment: "Patient and encouraging teacher.",
-    createdAt: new Date().toISOString(),
-  },
-];
+import { useAuth } from "../../../context/AuthContext";
+import {
+  fetchCompletedSessions,
+  fetchLearningSessions,
+  fetchOfferedSkills,
+  fetchProfileByUsername,
+  fetchReviews,
+} from "../../../services/profileService";
+import {
+  CompletedSession,
+  LearningSession,
+  ProfileUser,
+  Review,
+  Skill,
+} from "../../../types/profile";
 
 export default function PublicProfile() {
   const {username} = useLocalSearchParams();
+  const {user} = useAuth(); // the logged-in viewer, not the profile being viewed
+
+  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [offered, setOffered] = useState<Skill[]>([]);
+  const [learning, setLearning] = useState<LearningSession[]>([]);
+  const [completed, setCompleted] = useState<CompletedSession[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!username) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const profile = await fetchProfileByUsername(String(username));
+        if (cancelled) return;
+        if (!profile) {
+          setNotFound(true);
+          return;
+        }
+        const [off, learn, comp, rev] = await Promise.all([
+          fetchOfferedSkills(profile.id),
+          fetchLearningSessions(profile.id),
+          fetchCompletedSessions(profile.id),
+          fetchReviews(profile.id),
+        ]);
+        if (cancelled) return;
+        setProfileUser(profile);
+        setOffered(off);
+        setLearning(learn);
+        setCompleted(comp);
+        setReviews(rev);
+      } catch (e) {
+        console.error("Failed to load public profile", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [username]);
+
+  const viewerProp = user ? {name: user.email ?? "You"} : null;
+
+  if (notFound) {
+    return (
+      <Screen user={viewerProp}>
+        <View className="flex-1 items-center justify-center pt-20">
+          <Text className="text-text-muted">User not found.</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (loading || !profileUser) {
+    return (
+      <Screen user={viewerProp}>
+        <View className="flex-1 items-center justify-center pt-20">
+          <ActivityIndicator color="#FFB300" />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
-    <Screen>
+    <Screen user={viewerProp}>
       <ProfileView
-        profileUser={{...MOCK_PUBLIC_USER, username: String(username)}}
+        profileUser={profileUser}
+        uid={profileUser.id}
         isOwnProfile={false}
-        offeredSkills={MOCK_OFFERED}
-        learningSessions={MOCK_LEARNING}
-        completedSessions={MOCK_COMPLETED}
-        reviews={MOCK_REVIEWS}
+        offeredSkills={offered}
+        learningSessions={learning}
+        completedSessions={completed}
+        reviews={reviews}
       />
     </Screen>
   );

@@ -37,12 +37,9 @@ export type MyProject = {
 };
 
 export const CATEGORIES = [
-  "Technology",
-  "Design",
+  "Tech",
+  "Creative",
+  "Languages",
   "Business",
-  "Music",
-  "Language",
-  "Cooking",
-  "Fitness",
-  "Other",
+  "Lifestyle",
 ];

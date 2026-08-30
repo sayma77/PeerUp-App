@@ -1,0 +1,73 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /skills/{skillId} {
+      allow read: if true; // public library, no auth required to browse
+      allow create: if request.auth != null
+                    && request.resource.data.mentorId == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.mentorId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if true; // mentor profiles need to be publicly viewable
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /requests/{requestId} {
+      allow create: if request.auth != null
+                    && request.resource.data.requesterId == request.auth.uid
+                    && request.resource.data.status == "pending";
+      allow read: if request.auth != null
+                    && (resource.data.requesterId == request.auth.uid
+                        || resource.data.mentorId == request.auth.uid);
+       allow update: if request.auth != null
+                && resource.data.mentorId == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if request.auth != null;
+      allow read, update: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    match /classes/{classId} {
+      allow read: if true; // public class list, no auth required to browse
+      allow create: if request.auth != null
+                    && request.resource.data.mentorId == request.auth.uid;
+      // registeredCount updates happen via the registration transaction
+      // below (any signed-in user), so update isn't restricted to the
+      // mentor alone — but the client only ever sends the specific field
+      // changes this feature needs (status/materials/registeredCount).
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null
+                    && resource.data.mentorId == request.auth.uid;
+
+      match /registrants/{userId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /questions/{questionId} {
+        allow read: if true;
+        allow create: if request.auth != null
+                      && request.resource.data.authorId == request.auth.uid;
+        allow update: if request.auth != null; // upvote transaction
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if request.auth != null
+                      && request.resource.data.reviewerId == request.auth.uid;
+      }
+    }
+
+    // Collections not built yet — everything else stays locked down until
+    // we write real rules for it, so nothing is accidentally wide open.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

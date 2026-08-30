@@ -139,10 +139,19 @@ export default function Register() {
       );
       const uid = userCredential.user.uid;
 
+      // Full user doc shape, matching what fetchMentorDetail / profile /
+      // dashboard screens expect to read (rating, reviewCount, etc. as
+      // real fields rather than relying on `?? 0` fallbacks everywhere).
       await setDoc(doc(db, "users", uid), {
         name,
         username,
         email,
+        avatar: "",
+        intro: "",
+        bio: "",
+        rating: 0,
+        reviewCount: 0,
+        pinnedBadges: [],
         createdAt: serverTimestamp(),
       });
 
