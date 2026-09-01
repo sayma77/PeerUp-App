@@ -5,10 +5,8 @@ export default function ChatLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: {backgroundColor: "#0A0E17"},
-      }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="[conversationId]" />
-    </Stack>
+        contentStyle: { backgroundColor: "#0A0E17" },
+      }}
+    />
   );
 }

@@ -25,14 +25,6 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="(auth)/login" options={{ presentation: "card" }} />
       <Stack.Screen name="(auth)/register" options={{ presentation: "card" }} />
-      <Stack.Screen
-        name="chat/[conversationId]"
-        options={{
-          presentation: "card",
-          contentStyle: { backgroundColor: "#0A0E17" },
-          animation: "none",
-        }}
-      />
     </Stack>
   );
 }

@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { doc, getDoc } from "firebase/firestore";
 import { useCallback, useMemo, useState } from "react";
+import { getOrCreateConversation } from "../../services/chatService";
 import {
   ActivityIndicator,
   Modal,
@@ -27,8 +28,8 @@ const PAGE_SIZE = 2;
 
 export default function Skills() {
   const router = useRouter();
-  const {showToast} = useToast();
-  const {user} = useAuth();
+  const { showToast } = useToast();
+  const { user } = useAuth();
 
   const [skills, setSkills] = useState<SkillCard[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(true);
@@ -42,6 +43,7 @@ export default function Skills() {
   const [mentor, setMentor] = useState<MentorDetail | null>(null);
   const [loadingMentor, setLoadingMentor] = useState(false);
   const [sendingRequest, setSendingRequest] = useState(false);
+  const [openingChat, setOpeningChat] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -62,7 +64,7 @@ export default function Skills() {
       return () => {
         cancelled = true;
       };
-    }, [])
+    }, []),
   );
 
   const filtered = useMemo(() => {
@@ -99,7 +101,39 @@ export default function Skills() {
     setModalSkill(null);
     setMentor(null);
   }
+  async function handleMessage() {
+    if (!user) {
+      router.push("/(auth)/login");
+      return;
+    }
+    if (!mentor) return;
 
+    setOpeningChat(true);
+    try {
+      const meSnap = await getDoc(doc(db, "users", user.uid));
+      const myName = meSnap.exists()
+        ? meSnap.data().name
+        : (user.email ?? "Someone");
+
+      const conversationId = await getOrCreateConversation({
+        currentUserId: user.uid,
+        currentUserName: myName,
+        partnerId: mentor.id,
+        partnerName: mentor.name,
+      });
+
+      closeModal();
+      router.push({
+        pathname: "/chat/[conversationId]",
+        params: { conversationId },
+      } as any);
+    } catch (err) {
+      console.error("Failed to open chat:", err);
+      showToast("Couldn't open chat", "error");
+    } finally {
+      setOpeningChat(false);
+    }
+  }
   async function handleRequest() {
     if (!user) {
       router.push("/(auth)/login");
@@ -120,7 +154,7 @@ export default function Skills() {
         skillName: modalSkill.name,
       });
 
-      setMentor({...mentor, requestStatus: "pending"});
+      setMentor({ ...mentor, requestStatus: "pending" });
       showToast(`Request sent to ${mentor.name}!`);
     } catch (err: any) {
       showToast(err?.message ?? "Failed to send request", "error");
@@ -130,7 +164,7 @@ export default function Skills() {
   }
 
   return (
-    <Screen user={user ? {name: user.email ?? "You"} : null}>
+    <Screen user={user ? { name: user.email ?? "You" } : null}>
       <View className="px-5 pt-6 pb-4">
         <Text className="text-3xl font-extralight text-text-primary mb-1">
           Discover <Text className="italic text-primary">Expertise</Text>
@@ -141,7 +175,7 @@ export default function Skills() {
             name="search"
             size={18}
             color="#64748B"
-            style={{position: "absolute", left: 16, top: 16, zIndex: 1}}
+            style={{ position: "absolute", left: 16, top: 16, zIndex: 1 }}
           />
           <TextInput
             value={search}
@@ -160,8 +194,9 @@ export default function Skills() {
         horizontal
         showsHorizontalScrollIndicator={false}
         className="px-5 mb-6"
-        style={{flexGrow: 0}}
-        contentContainerStyle={{alignItems: "flex-start"}}>
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={{ alignItems: "flex-start" }}
+      >
         <View className="flex-row gap-2">
           {["All", ...CATEGORIES].map((cat) => {
             const active = category === cat;
@@ -176,9 +211,11 @@ export default function Skills() {
                   active
                     ? "bg-primary/10 border-primary/20"
                     : "bg-bg-medium border-border"
-                }`}>
+                }`}
+              >
                 <Text
-                  className={`text-[10px] font-bold uppercase tracking-widest ${active ? "text-primary" : "text-text-muted"}`}>
+                  className={`text-[10px] font-bold uppercase tracking-widest ${active ? "text-primary" : "text-text-muted"}`}
+                >
                   {cat === "All" ? "All Skills" : cat}
                 </Text>
               </Pressable>
@@ -208,7 +245,8 @@ export default function Skills() {
             <Pressable
               key={skill.id}
               onPress={() => openMentorModal(skill)}
-              className="bg-bg-medium border border-border rounded-3xl p-6">
+              className="bg-bg-medium border border-border rounded-3xl p-6"
+            >
               <View className="flex-row items-start justify-between mb-5">
                 <View className="w-12 h-12 rounded-2xl bg-bg-light border border-border items-center justify-center">
                   <Feather name="zap" size={20} color="#FFB300" />
@@ -252,7 +290,8 @@ export default function Skills() {
         {hasMore && (
           <Pressable
             onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="self-center px-6 py-3 rounded-xl border border-border bg-bg-medium mb-4">
+            className="self-center px-6 py-3 rounded-xl border border-border bg-bg-medium mb-4"
+          >
             <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
               Load More
             </Text>
@@ -265,7 +304,8 @@ export default function Skills() {
         visible={!!modalSkill}
         transparent
         animationType="fade"
-        onRequestClose={closeModal}>
+        onRequestClose={closeModal}
+      >
         <View className="flex-1 bg-black/90 items-center justify-center px-5">
           <View className="w-full bg-bg-medium border border-border rounded-3xl overflow-hidden max-h-[85%]">
             <View className="p-6 border-b border-border flex-row items-start justify-between">
@@ -297,7 +337,8 @@ export default function Skills() {
                       closeModal();
                       router.push(`/profile/${mentor.username}` as any);
                     }}
-                    className="flex-row items-center gap-4">
+                    className="flex-row items-center gap-4"
+                  >
                     <View className="w-14 h-14 rounded-2xl bg-bg-light border border-border items-center justify-center">
                       <Text className="text-xl font-light text-primary">
                         {mentor.name.charAt(0).toUpperCase()}
@@ -314,7 +355,6 @@ export default function Skills() {
                       ) : null}
                     </View>
                   </Pressable>
-
                   <View className="flex-row items-center gap-2 px-4 py-3.5 bg-bg-light border border-border rounded-2xl">
                     <Feather name="star" size={16} color="#FFB300" />
                     <Text className="text-sm text-text-primary">
@@ -329,7 +369,6 @@ export default function Skills() {
                       )}
                     </Text>
                   </View>
-
                   {mentor.bio ? (
                     <View className="px-4 py-3.5 bg-bg-light border border-border rounded-2xl">
                       <Text className="text-sm leading-5 text-text-muted">
@@ -337,19 +376,14 @@ export default function Skills() {
                       </Text>
                     </View>
                   ) : null}
-
                   <View className="flex-row gap-3 mt-1 mb-4">
                     <Pressable
-                      onPress={() => {
-                        closeModal();
-                        router.push({
-                          pathname: "/chat/[conversationId]",
-                          params: {conversationId: mentor.id},
-                        } as any);
-                      }}
-                      className="flex-1 py-3 rounded-2xl border border-border items-center">
+                      onPress={handleMessage}
+                      disabled={openingChat}
+                      className="flex-1 py-3 rounded-2xl border border-border items-center"
+                    >
                       <Text className="text-[9px] font-black uppercase tracking-widest text-text-muted">
-                        Message
+                        {openingChat ? "Opening..." : "Message"}
                       </Text>
                     </Pressable>
 
@@ -413,7 +447,8 @@ function RequestButton({
     <Pressable
       onPress={onPress}
       disabled={sending}
-      className="flex-1 py-3 rounded-2xl bg-primary items-center">
+      className="flex-1 py-3 rounded-2xl bg-primary items-center"
+    >
       <Text className="text-[9px] font-black uppercase tracking-widest text-bg-light">
         {sending ? "Sending..." : "Request Skill"}
       </Text>
