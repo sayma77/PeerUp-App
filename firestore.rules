@@ -113,9 +113,16 @@ service cloud.firestore {
     match /conversations/{conversationId} {
       function isParticipant() {
         return request.auth != null &&
-          request.auth.uid in resource.data.participants;
+          (resource == null || request.auth.uid in resource.data.participants);
       }
 
+      // Handles the getOrCreate flow: the client does a getDoc() on a
+      // deterministic (sorted-uids) conversation ID before the doc may
+      // exist. If resource is null (doc not found), rules must still let
+      // an authenticated user "read" it — they just get exists() === false
+      // back. There's nothing to leak on a nonexistent doc, and create
+      // still independently enforces that only a real participant can
+      // bring the doc into existence.
       allow read: if isParticipant();
 
       allow create: if request.auth != null

@@ -3,21 +3,21 @@
 // Adjust the `db` import path to wherever your firebaseConfig.js actually lives.
 
 import {
-  collection,
-  query,
-  orderBy,
-  where,
-  limit,
-  getDocs,
-  getDoc,
   addDoc,
-  updateDoc,
+  collection,
   deleteDoc,
   doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
   serverTimestamp,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { SkillCard, MentorDetail } from "../types/skills";
+import { MentorDetail, SkillCard } from "../types/skills";
 
 // ── Fetch all skills (skills library list) ─────────────────────────────
 // Mirrors: Skill.find().populate('mentor', 'name')
@@ -44,7 +44,7 @@ export async function fetchMySkills(mentorId: string): Promise<SkillCard[]> {
   const q = query(
     collection(db, "skills"),
     where("mentorId", "==", mentorId),
-    orderBy("createdAt", "desc")
+    orderBy("createdAt", "desc"),
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => {
@@ -82,7 +82,7 @@ export async function addSkill(params: {
 // so the UI doesn't even show the edit option to non-owners.
 export async function editSkill(
   skillId: string,
-  updates: { name: string; category: string; description: string }
+  updates: {name: string; category: string; description: string},
 ) {
   await updateDoc(doc(db, "skills", skillId), updates);
 }
@@ -97,13 +97,32 @@ export async function deleteSkill(skillId: string) {
 // Mirrors: GET /api/skills/:id/mentor
 // Two reads instead of one populate: the mentor's user doc, then (if
 // logged in) the most recent request between this user/mentor/skill.
+// ── Mentor detail modal ──────────────────────────────────────────────
+// Mirrors: GET /api/skills/:id/mentor
+// Three reads instead of one populate: the mentor's user doc, this
+// mentor's reviews (to compute a live rating — nothing on the user doc
+// itself keeps rating/reviewCount in sync, so we can't trust cached
+// fields there), then (if logged in) the most recent request between
+// this user/mentor/skill.
 export async function fetchMentorDetail(
   skill: SkillCard,
-  currentUserId: string | null
+  currentUserId: string | null,
 ): Promise<MentorDetail> {
   const mentorSnap = await getDoc(doc(db, "users", skill.mentorId));
   if (!mentorSnap.exists()) throw new Error("Mentor not found");
   const mentorData = mentorSnap.data();
+
+  const reviewsQuery = query(
+    collection(db, "reviews"),
+    where("mentorId", "==", skill.mentorId),
+  );
+  const reviewsSnap = await getDocs(reviewsQuery);
+  const reviewCount = reviewsSnap.size;
+  const rating =
+    reviewCount > 0
+      ? reviewsSnap.docs.reduce((sum, d) => sum + (d.data().rating ?? 0), 0) /
+        reviewCount
+      : 0;
 
   let requestStatus: MentorDetail["requestStatus"] = "none";
 
@@ -114,7 +133,7 @@ export async function fetchMentorDetail(
       where("mentorId", "==", skill.mentorId),
       where("skillId", "==", skill.id),
       orderBy("createdAt", "desc"),
-      limit(1)
+      limit(1),
     );
     const reqSnap = await getDocs(reqQuery);
     if (!reqSnap.empty) {
@@ -128,8 +147,8 @@ export async function fetchMentorDetail(
     username: mentorData.username,
     intro: mentorData.intro ?? null,
     bio: mentorData.bio ?? null,
-    rating: mentorData.rating ?? 0,
-    reviewCount: mentorData.reviewCount ?? 0,
+    rating,
+    reviewCount,
     requestStatus,
   };
 }
@@ -146,7 +165,7 @@ export async function sendSkillRequest(params: {
   skillId: string;
   skillName: string;
 }) {
-  const { requesterId, requesterName, mentorId, skillId, skillName } = params;
+  const {requesterId, requesterName, mentorId, skillId, skillName} = params;
 
   if (requesterId === mentorId) {
     throw new Error("You can't request yourself");
@@ -157,7 +176,7 @@ export async function sendSkillRequest(params: {
     where("requesterId", "==", requesterId),
     where("mentorId", "==", mentorId),
     where("skillId", "==", skillId),
-    where("status", "==", "pending")
+    where("status", "==", "pending"),
   );
   const existingSnap = await getDocs(existingQuery);
   if (!existingSnap.empty) {

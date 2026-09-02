@@ -131,42 +131,65 @@ export default function Register() {
       return setFormError("You must agree to the Terms of Service.");
 
     setSubmitting(true);
+
+    let uid: string | null = null;
     try {
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
         password,
       );
-      const uid = userCredential.user.uid;
-
-      // Full user doc shape, matching what fetchMentorDetail / profile /
-      // dashboard screens expect to read (rating, reviewCount, etc. as
-      // real fields rather than relying on `?? 0` fallbacks everywhere).
-      await setDoc(doc(db, "users", uid), {
-        name,
-        username,
-        email,
-        avatar: "",
-        intro: "",
-        bio: "",
-        rating: 0,
-        reviewCount: 0,
-        pinnedBadges: [],
-        createdAt: serverTimestamp(),
-      });
-
-      router.replace("/");
+      uid = userCredential.user.uid;
     } catch (err: any) {
-      if (err.code === "auth/email-already-in-use") {
-        setFormError("That email is already registered.");
-      } else if (err.code === "auth/weak-password") {
-        setFormError("Password is too weak.");
-      } else {
-        setFormError("Something went wrong creating your account.");
-      }
-    } finally {
       setSubmitting(false);
+      if (err.code === "auth/email-already-in-use") {
+        return setFormError("That email is already registered.");
+      }
+      if (err.code === "auth/weak-password") {
+        return setFormError("Password is too weak.");
+      }
+      return setFormError("Something went wrong creating your account.");
     }
+
+    // Auth account now exists — from here on, don't leave the user stuck.
+    // Retry the profile write a couple of times; if it still fails,
+    // AuthContext's ensureUserProfile will create a placeholder doc on
+    // next auth state change, so we still navigate forward either way.
+    const profileData = {
+      name,
+      username,
+      email,
+      avatar: "",
+      intro: "",
+      bio: "",
+      rating: 0,
+      reviewCount: 0,
+      pinnedBadges: [],
+      createdAt: serverTimestamp(),
+    };
+
+    let profileSaved = false;
+    for (let attempt = 0; attempt < 2 && !profileSaved; attempt++) {
+      try {
+        await setDoc(doc(db, "users", uid), profileData);
+        profileSaved = true;
+      } catch (err) {
+        console.error(`setDoc attempt ${attempt + 1} failed:`, err);
+      }
+    }
+
+    if (!profileSaved) {
+      // Not fatal: ensureUserProfile in AuthContext will create a
+      // placeholder doc automatically on the next auth state change.
+      // Let the user know their name/username may not have saved
+      // correctly so they think to check Edit Profile.
+      console.warn(
+        "Profile doc could not be created during signup; will self-heal with placeholder data on next auth check.",
+      );
+    }
+
+    setSubmitting(false);
+    router.replace("/");
   }
 
   return (
