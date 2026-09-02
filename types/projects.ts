@@ -10,6 +10,8 @@ export type JoinRequestStatus = "pending" | "accepted" | "declined";
 
 export type JoinRequest = {
   userId: string;
+  username: string;
+  userName: string;
   status: JoinRequestStatus;
 };
 
@@ -32,6 +34,3 @@ export const STATUS_FILTERS: { label: string; value: ProjectStatus | "all" | "fu
   { label: "In Progress", value: "in-progress" },
   { label: "Completed", value: "completed" },
 ];
-
-// TEMPORARY: replace with real Firebase Auth uid once auth is wired up
-export const CURRENT_USER_ID = "u1";

@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -13,54 +14,17 @@ import {
 import Screen from "../../components/Screen";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import {
+  createProject,
+  deleteProject,
+  editProject,
+  fetchProjects,
+  sendJoinRequest,
+  updateProjectStatus,
+} from "../../services/projectsService";
 import { Project, STATUS_FILTERS } from "../../types/projects";
 
 const PAGE_SIZE = 2;
-
-// TODO: replace with a real Firestore query on the `projects` collection
-const MOCK_PROJECTS: Project[] = [
-  {
-    id: "p1",
-    title: "Campus Marketplace App",
-    description:
-      "A React Native app for students to buy/sell used textbooks and gear on campus.",
-    status: "open",
-    creator: {id: "u1", name: "Sayma", username: "sayma"},
-    members: [{id: "u1", name: "Sayma", username: "sayma"}],
-    maxMembers: 4,
-    skillsRequired: ["React Native", "Firebase", "UI Design"],
-    joinRequests: [{userId: "u2", status: "declined"}],
-  },
-  {
-    id: "p2",
-    title: "Study Group Finder",
-    description:
-      "Match students into study groups based on course and availability.",
-    status: "in-progress",
-    creator: {id: "u3", name: "Arif Khan", username: "arifk"},
-    members: [
-      {id: "u3", name: "Arif Khan", username: "arifk"},
-      {id: "u1", name: "Sayma", username: "sayma"},
-    ],
-    maxMembers: 3,
-    skillsRequired: ["Node.js", "MongoDB"],
-    joinRequests: [],
-  },
-  {
-    id: "p3",
-    title: "Alumni Mentorship Portal",
-    description: "Connect current students with alumni mentors in their field.",
-    status: "completed",
-    creator: {id: "u4", name: "Priya Das", username: "priyad"},
-    members: [
-      {id: "u4", name: "Priya Das", username: "priyad"},
-      {id: "u5", name: "Nadia Islam", username: "nadiai"},
-    ],
-    maxMembers: 2,
-    skillsRequired: ["EJS", "Express"],
-    joinRequests: [],
-  },
-];
 
 export default function Projects() {
   const router = useRouter();
@@ -69,7 +33,8 @@ export default function Projects() {
 
   const currentUserId = user?.uid || "anon"; // Fallback for safely typing IDs
 
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "open" | "full" | "in-progress" | "completed"
@@ -79,6 +44,23 @@ export default function Projects() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [joinTarget, setJoinTarget] = useState<Project | null>(null);
+
+  async function loadProjects() {
+    setLoadingProjects(true);
+    try {
+      const data = await fetchProjects();
+      setProjects(data);
+    } catch (err) {
+      console.error("Failed to load projects:", err);
+      showToast("Failed to load projects", "error");
+    } finally {
+      setLoadingProjects(false);
+    }
+  }
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -113,99 +95,115 @@ export default function Projects() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            // TODO: delete the project doc in Firestore
+          onPress: async () => {
+            const prevProjects = projects;
             setProjects((prev) => prev.filter((p) => p.id !== project.id));
-            showToast("Project deleted", "success");
+            try {
+              await deleteProject(project.id);
+              showToast("Project deleted", "success");
+            } catch (err) {
+              console.error("Failed to delete project:", err);
+              setProjects(prevProjects);
+              showToast("Failed to delete project", "error");
+            }
           },
         },
       ],
     );
   }
 
-  function handleStart(project: Project) {
-    // TODO: update status field in Firestore
+  async function handleStart(project: Project) {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === project.id ? {...p, status: "in-progress"} : p,
       ),
     );
+    try {
+      await updateProjectStatus(project.id, "in-progress");
+    } catch (err) {
+      console.error("Failed to start project:", err);
+      showToast("Failed to update project", "error");
+      loadProjects();
+    }
   }
 
-  function handleComplete(project: Project) {
-    // TODO: update status field in Firestore
+  async function handleComplete(project: Project) {
     setProjects((prev) =>
       prev.map((p) => (p.id === project.id ? {...p, status: "completed"} : p)),
     );
+    try {
+      await updateProjectStatus(project.id, "completed");
+    } catch (err) {
+      console.error("Failed to complete project:", err);
+      showToast("Failed to update project", "error");
+      loadProjects();
+    }
   }
 
-  function handleConfirmJoin() {
+  async function handleConfirmJoin() {
     if (!user) {
       router.push("/(auth)/login");
       setJoinTarget(null);
       return;
     }
-
     if (!joinTarget) return;
-    // TODO: write a join request doc in Firestore
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === joinTarget.id
-          ? {
-              ...p,
-              joinRequests: [
-                ...p.joinRequests,
-                {userId: currentUserId, status: "pending"},
-              ],
-            }
-          : p,
-      ),
-    );
-    showToast("Request sent", "success");
-    setJoinTarget(null);
+
+    const currentName = user.email || "You";
+    const currentUsername = user.email?.split("@")[0] || "user";
+
+    try {
+      await sendJoinRequest(joinTarget.id, {
+        id: currentUserId,
+        name: currentName,
+        username: currentUsername,
+      });
+      showToast("Request sent", "success");
+      setJoinTarget(null);
+      loadProjects();
+    } catch (err: any) {
+      console.error("Failed to send join request:", err);
+      showToast(err?.message || "Failed to send request", "error");
+    }
   }
 
-  function handleCreate(data: {
+  async function handleCreate(data: {
     title: string;
     description: string;
     skills: string[];
     maxMembers: number;
   }) {
-    // Dynamically grab user details instead of hardcoding
     const currentName = user?.email || "You";
     const currentUsername = user?.email?.split("@")[0] || "user";
 
-    // TODO: create the project doc in Firestore
-    const newProject: Project = {
-      id: `p${Date.now()}`,
-      title: data.title,
-      description: data.description,
-      status: "open",
-      creator: {
-        id: currentUserId,
-        name: currentName,
-        username: currentUsername,
-      },
-      members: [
-        {id: currentUserId, name: currentName, username: currentUsername},
-      ],
-      maxMembers: data.maxMembers,
-      skillsRequired: data.skills,
-      joinRequests: [],
-    };
-    setProjects((prev) => [newProject, ...prev]);
-    setCreateOpen(false);
-    showToast("Project created", "success");
+    try {
+      await createProject({
+        title: data.title,
+        description: data.description,
+        skillsRequired: data.skills,
+        maxMembers: data.maxMembers,
+        creator: {
+          id: currentUserId,
+          name: currentName,
+          username: currentUsername,
+        },
+      });
+      setCreateOpen(false);
+      showToast("Project created", "success");
+      loadProjects();
+    } catch (err) {
+      console.error("Failed to create project:", err);
+      showToast("Failed to create project", "error");
+    }
   }
 
-  function handleSaveEdit(data: {
+  async function handleSaveEdit(data: {
     title: string;
     description: string;
     skills: string[];
     maxMembers: number;
   }) {
     if (!editing) return;
-    // TODO: update the project doc in Firestore
+    const prevProjects = projects;
     setProjects((prev) =>
       prev.map((p) =>
         p.id === editing.id
@@ -220,7 +218,19 @@ export default function Projects() {
       ),
     );
     setEditing(null);
-    showToast("Project updated", "success");
+    try {
+      await editProject(editing.id, {
+        title: data.title,
+        description: data.description,
+        skillsRequired: data.skills,
+        maxMembers: data.maxMembers,
+      });
+      showToast("Project updated", "success");
+    } catch (err) {
+      console.error("Failed to update project:", err);
+      setProjects(prevProjects);
+      showToast("Failed to update project", "error");
+    }
   }
 
   return (
@@ -298,7 +308,14 @@ export default function Projects() {
 
       {/* Project list */}
       <View className="px-5 gap-5">
-        {visible.length === 0 ? (
+        {loadingProjects ? (
+          <View className="items-center py-20">
+            <ActivityIndicator size="small" color="#FFB300" />
+            <Text className="text-sm text-text-muted mt-3">
+              Loading projects…
+            </Text>
+          </View>
+        ) : visible.length === 0 ? (
           <View className="items-center py-20">
             <View className="w-16 h-16 rounded-full border border-border items-center justify-center opacity-50 mb-4">
               <Feather name="folder" size={22} color="#64748B" />

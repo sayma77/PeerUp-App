@@ -64,50 +64,97 @@ service cloud.firestore {
       }
     }
 
+    match /reviews/{reviewId} {
+      allow read: if true; // shown on public mentor profile pages
+      allow create: if request.auth != null
+                    && request.resource.data.reviewerId == request.auth.uid;
+    }
+
+    // ── Projects (Collaborative Projects feature) ──────────────────────
+    // Public to browse, like skills/classes. Two distinct kinds of writer:
+    //  1. The creator — can edit/delete/change status, accept or decline
+    //     join requests, add members. Anything goes as long as they stay
+    //     the creator.
+    //  2. Anyone else — can ONLY touch the joinRequests array (sending
+    //     their own join request). Every other field must stay unchanged.
+    //
+    // Caveat: joinRequests is a plain embedded array, so these rules can't
+    // fully verify a non-creator only edited *their own* entry within it
+    // (Firestore rules can't diff array elements by identity). A determined
+    // client could still hand-craft a request that tampers with someone
+    // else's entry in that array. Real bite would need joinRequests as a
+    // subcollection (one doc per request) instead of an array field, which
+    // would let rules check ownership on writes precisely — worth doing
+    // later if this needs to be airtight, but out of scope for now.
+    match /projects/{projectId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+                    && request.resource.data.creator.id == request.auth.uid;
+
+      allow update: if request.auth != null
+                    && (
+                      resource.data.creator.id == request.auth.uid
+                      || (
+                        request.resource.data.title == resource.data.title &&
+                        request.resource.data.description == resource.data.description &&
+                        request.resource.data.status == resource.data.status &&
+                        request.resource.data.creator == resource.data.creator &&
+                        request.resource.data.members == resource.data.members &&
+                        request.resource.data.maxMembers == resource.data.maxMembers &&
+                        request.resource.data.skillsRequired == resource.data.skillsRequired
+                      )
+                    );
+
+      allow delete: if request.auth != null
+                    && resource.data.creator.id == request.auth.uid;
+    }
+
+    match /conversations/{conversationId} {
+      function isParticipant() {
+        return request.auth != null &&
+          request.auth.uid in resource.data.participants;
+      }
+
+      allow read: if isParticipant();
+
+      allow create: if request.auth != null
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.participants.size() == 2;
+
+      // Anyone in the conversation can update lastMessage/lastMessageAt/
+      // unreadCounts, but participants/participantNames/createdAt are locked.
+      allow update: if request.auth != null
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.participantNames == resource.data.participantNames
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      match /messages/{messageId} {
+        function isConvoParticipant() {
+          return request.auth != null &&
+            request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        }
+
+        allow read: if isConvoParticipant();
+
+        allow create: if isConvoParticipant()
+          && request.resource.data.senderId == request.auth.uid;
+
+        // Only allows flipping `read` — senderId/text/createdAt are immutable.
+        allow update: if isConvoParticipant()
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.text == resource.data.text
+          && request.resource.data.createdAt == resource.data.createdAt;
+
+        allow delete: if false;
+      }
+    }
+
     // Collections not built yet — everything else stays locked down until
     // we write real rules for it, so nothing is accidentally wide open.
     match /{document=**} {
       allow read, write: if false;
     }
-  }
-}
-match /conversations/{conversationId} {
-  function isParticipant() {
-    return request.auth != null &&
-      request.auth.uid in resource.data.participants;
-  }
-
-  allow read: if isParticipant();
-
-  allow create: if request.auth != null
-    && request.auth.uid in request.resource.data.participants
-    && request.resource.data.participants.size() == 2;
-
-  // Anyone in the conversation can update lastMessage/lastMessageAt/
-  // unreadCounts, but participants/participantNames/createdAt are locked.
-  allow update: if request.auth != null
-    && request.auth.uid in resource.data.participants
-    && request.resource.data.participants == resource.data.participants
-    && request.resource.data.participantNames == resource.data.participantNames
-    && request.resource.data.createdAt == resource.data.createdAt;
-
-  match /messages/{messageId} {
-    function isConvoParticipant() {
-      return request.auth != null &&
-        request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
-    }
-
-    allow read: if isConvoParticipant();
-
-    allow create: if isConvoParticipant()
-      && request.resource.data.senderId == request.auth.uid;
-
-    // Only allows flipping `read` — senderId/text/createdAt are immutable.
-    allow update: if isConvoParticipant()
-      && request.resource.data.senderId == resource.data.senderId
-      && request.resource.data.text == resource.data.text
-      && request.resource.data.createdAt == resource.data.createdAt;
-
-    allow delete: if false;
   }
 }

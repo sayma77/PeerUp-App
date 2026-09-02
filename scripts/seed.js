@@ -99,10 +99,10 @@ async function clearCollection(name) {
 
 async function seed() {
   try {
-    // Clear collections this script owns. Requests/Reviews/Notifications/
-    // Projects aren't seeded yet (no sample data for them below), so
-    // they're left alone here — add clearing + sample data for each as
-    // we build those features.
+    // Clear collections this script owns. Requests/Reviews/Notifications
+    // aren't seeded yet (no sample data for them below), so they're left
+    // alone here — add clearing + sample data for each as we build those
+    // features.
     await clearCollection("resources");
     await clearCollection("skills");
     await clearCollection("users");
@@ -112,6 +112,9 @@ async function seed() {
     // seeding at this scale; if it ever matters, delete subcollection
     // docs explicitly before deleting the parent.
     await clearCollection("classes");
+    // Same subcollection caveat doesn't apply here — projects have no
+    // subcollections, joinRequests live as an embedded array field.
+    await clearCollection("projects");
     console.log("Cleared existing seed data...");
 
     // ── Users ────────────────────────────────────────────────────────
@@ -308,6 +311,74 @@ async function seed() {
       classCount++;
     }
     console.log(`Created ${classCount} classes...`);
+
+    // ── Projects (Collaborative Projects feature) ───────────────────
+    // These are seed-only sample projects for browsing/UI testing. To
+    // test the join-request flow end-to-end with your own real accounts
+    // (not these seed users, since they have no Auth login), create a
+    // project from one logged-in account and send/accept a join request
+    // from a second logged-in account.
+    const sampleProjects = [
+      {
+        title: "Campus Marketplace App",
+        description:
+          "A React Native app for students to buy/sell used textbooks and gear on campus.",
+        status: "open",
+        creator: createdUsers[0],
+        members: [createdUsers[0]],
+        maxMembers: 4,
+        skillsRequired: ["React Native", "Firebase", "UI Design"],
+        joinRequests: [
+          {
+            userId: createdUsers[8].id,
+            username: createdUsers[8].username,
+            userName: createdUsers[8].name,
+            status: "declined",
+          },
+        ],
+      },
+      {
+        title: "Study Group Finder",
+        description:
+          "Match students into study groups based on course and availability.",
+        status: "in-progress",
+        creator: createdUsers[3],
+        members: [createdUsers[3], createdUsers[0]],
+        maxMembers: 3,
+        skillsRequired: ["Node.js", "MongoDB"],
+        joinRequests: [],
+      },
+      {
+        title: "Alumni Mentorship Portal",
+        description:
+          "Connect current students with alumni mentors in their field.",
+        status: "completed",
+        creator: createdUsers[4],
+        members: [createdUsers[4], createdUsers[5]],
+        maxMembers: 2,
+        skillsRequired: ["EJS", "Express"],
+        joinRequests: [],
+      },
+    ];
+
+    const projectsRef = db.collection("projects");
+    let projectCount = 0;
+    for (const p of sampleProjects) {
+      const toMember = (u) => ({id: u.id, name: u.name, username: u.username});
+      await projectsRef.add({
+        title: p.title,
+        description: p.description,
+        status: p.status,
+        creator: toMember(p.creator),
+        members: p.members.map(toMember),
+        maxMembers: p.maxMembers,
+        skillsRequired: p.skillsRequired,
+        joinRequests: p.joinRequests,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      projectCount++;
+    }
+    console.log(`Created ${projectCount} projects...`);
 
     console.log("Seeding complete!");
     process.exit(0);
