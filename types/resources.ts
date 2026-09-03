@@ -8,6 +8,12 @@ export type Resource = {
   skillName: string;
   level: ResourceLevel;
   addedBy: { id: string; name: string };
+
+  // NEW — optional for backward compatibility
+  isAIGenerated?: boolean;
+  resourceType?: string;
+  topic?: string;
+  content?: string;
 };
 
 // TODO: replace with a real Firestore query on the `skills` collection

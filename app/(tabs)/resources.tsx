@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   Linking,
   Modal,
@@ -10,9 +10,15 @@ import {
   TextInput,
   View,
 } from "react-native";
+
 import Screen from "../../components/Screen";
+import AIResourceGenerator from "../../components/AIResourceGenerator";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import {
+  AIResourceData,
+  downloadAIResourceAsPDF,
+} from "../../services/resourceService";
 import {
   LEVEL_OPTIONS,
   Resource,
@@ -27,11 +33,12 @@ const MOCK_RESOURCES: Resource[] = [
   {
     id: "r1",
     title: "The Complete React Guide",
-    description: "A deep dive into hooks, context, and component patterns.",
+    description:
+      "A deep dive into hooks, context, and component patterns.",
     link: "https://react.dev",
     skillName: "React Native",
     level: "Beginner",
-    addedBy: {id: "u1", name: "Sayma"},
+    addedBy: { id: "u1", name: "Sayma" },
   },
   {
     id: "r2",
@@ -41,7 +48,7 @@ const MOCK_RESOURCES: Resource[] = [
     link: "https://firebase.google.com/docs/firestore",
     skillName: "Firebase",
     level: "Medium",
-    addedBy: {id: "u3", name: "Arif Khan"},
+    addedBy: { id: "u3", name: "Arif Khan" },
   },
   {
     id: "r3",
@@ -51,13 +58,13 @@ const MOCK_RESOURCES: Resource[] = [
     link: "https://www.mongodb.com/docs/manual/aggregation/",
     skillName: "MongoDB",
     level: "Hard",
-    addedBy: {id: "u4", name: "Priya Das"},
+    addedBy: { id: "u4", name: "Priya Das" },
   },
 ];
 
 const levelColors: Record<
   ResourceLevel,
-  {bg: string; text: string; border: string}
+  { bg: string; text: string; border: string }
 > = {
   Beginner: {
     bg: "rgba(255,179,0,0.1)",
@@ -78,10 +85,9 @@ const levelColors: Record<
 
 export default function Resources() {
   const router = useRouter();
-  const {showToast} = useToast();
-  const {user} = useAuth(); // Replaced hardcoded auth with context
-
-  const currentUserId = user?.uid || "anon"; // Fallback for safely typing IDs
+  const { showToast } = useToast();
+  const { user } = useAuth();
+  const currentUserId = user?.uid || "anon";
 
   const [resources, setResources] = useState<Resource[]>(MOCK_RESOURCES);
   const [search, setSearch] = useState("");
@@ -89,19 +95,21 @@ export default function Resources() {
   const [levelFilter, setLevelFilter] = useState<ResourceLevel | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [shareOpen, setShareOpen] = useState(false);
+  const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
 
-  const filtered = useMemo(() => {
+  const filtered = resources.filter((r) => {
     const q = search.trim().toLowerCase();
-    return resources.filter((r) => {
-      const matchesSearch =
-        !q ||
-        r.title.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q);
-      const matchesSkill = !skillFilter || r.skillName === skillFilter;
-      const matchesLevel = !levelFilter || r.level === levelFilter;
-      return matchesSearch && matchesSkill && matchesLevel;
-    });
-  }, [resources, search, skillFilter, levelFilter]);
+
+    const matchesSearch =
+      !q ||
+      r.title.toLowerCase().includes(q) ||
+      r.description.toLowerCase().includes(q);
+
+    const matchesSkill = !skillFilter || r.skillName === skillFilter;
+    const matchesLevel = !levelFilter || r.level === levelFilter;
+
+    return matchesSearch && matchesSkill && matchesLevel;
+  });
 
   const visible = filtered.slice(0, visibleCount);
   const canLoadMore = visibleCount < filtered.length;
@@ -109,6 +117,7 @@ export default function Resources() {
   function handleDelete(resource: Resource) {
     // TODO: delete the resource doc in Firestore
     setResources((prev) => prev.filter((r) => r.id !== resource.id));
+
     showToast("Resource deleted", "success");
   }
 
@@ -119,7 +128,6 @@ export default function Resources() {
     skillName: string;
     level: ResourceLevel;
   }) {
-    // Dynamically grab user details instead of hardcoding
     const currentName = user?.email?.split("@")[0] || "User";
 
     // TODO: create the resource doc in Firestore
@@ -130,29 +138,85 @@ export default function Resources() {
       link: data.link,
       skillName: data.skillName,
       level: data.level,
-      addedBy: {id: currentUserId, name: currentName},
+      addedBy: {
+        id: currentUserId,
+        name: currentName,
+      },
     };
+
     setResources((prev) => [newResource, ...prev]);
     setShareOpen(false);
+
     showToast("Resource published", "success");
   }
 
+  function handlePublishAIResource(data: AIResourceData) {
+    const currentName = user?.email?.split("@")[0] || "User";
+
+    // TODO: create the AI resource doc in Firestore
+    const newResource: Resource = {
+      id: `r${Date.now()}`,
+      title: data.title,
+      description: `${data.resourceType} · ${data.topic}`,
+      link: "",
+      skillName: data.skill,
+      level: data.difficulty ?? "Beginner",
+      addedBy: {
+        id: currentUserId,
+        name: currentName,
+      },
+      content: data.content,
+      isAIGenerated: true,
+      resourceType: data.resourceType,
+      topic: data.topic,
+    };
+
+    setResources((prev) => [newResource, ...prev]);
+    setAiGeneratorOpen(false);
+
+    showToast("AI resource published", "success");
+  }
+
   return (
-    <Screen user={user ? {name: user.email ?? "You"} : null}>
+    <Screen user={user ? { name: user.email ?? "You" } : null}>
       <View className="px-5 pt-8 pb-4">
+        {/* Page Title */}
         <Text className="text-4xl font-extralight text-text-primary">
-          Learning <Text className="italic text-primary">Resources</Text>
+          Learning{" "}
+          <Text className="italic text-primary">Resources</Text>
         </Text>
 
+        {/* Share Resource */}
         <Pressable
           onPress={() => {
-            if (!user) router.push("/(auth)/login");
-            else setShareOpen(true);
+            if (!user) {
+              router.push("/(auth)/login");
+            } else {
+              setShareOpen(true);
+            }
           }}
-          className="mt-6 py-3.5 rounded-2xl bg-primary/10 border border-primary/20 flex-row items-center justify-center gap-2">
+          className="mt-6 py-3.5 rounded-2xl bg-primary/10 border border-primary/20 flex-row items-center justify-center gap-2"
+        >
           <Feather name="plus" size={14} color="#FFB300" />
           <Text className="text-primary text-[10px] font-bold uppercase tracking-[0.2em]">
             Share Resource
+          </Text>
+        </Pressable>
+
+        {/* Generate AI Resource */}
+        <Pressable
+          onPress={() => {
+            if (!user) {
+              router.push("/(auth)/login");
+            } else {
+              setAiGeneratorOpen(true);
+            }
+          }}
+          className="mt-6 py-3.5 rounded-2xl bg-primary/10 border border-primary/20 flex-row items-center justify-center gap-2"
+        >
+          <Feather name="zap" size={14} color="#FFB300" />
+          <Text className="text-primary text-[10px] font-bold uppercase tracking-[0.2em]">
+            Generate AI Resource
           </Text>
         </Pressable>
 
@@ -176,7 +240,7 @@ export default function Resources() {
           )}
         </View>
 
-        {/* Dropdown Filters */}
+        {/* Filters */}
         <View className="flex-row gap-3 mt-4">
           <Dropdown
             value={skillFilter}
@@ -199,7 +263,7 @@ export default function Resources() {
         </View>
       </View>
 
-      {/* Resource list */}
+      {/* Resource List */}
       <View className="px-5 gap-5">
         {visible.length === 0 ? (
           <View className="items-center py-20">
@@ -227,7 +291,8 @@ export default function Resources() {
         {canLoadMore && (
           <Pressable
             onPress={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="py-3.5 rounded-2xl border border-border items-center mb-6">
+            className="py-3.5 rounded-2xl border border-border items-center mb-6"
+          >
             <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
               Load More
             </Text>
@@ -235,18 +300,27 @@ export default function Resources() {
         )}
       </View>
 
+      {/* Existing Share Resource Modal */}
       <ShareResourceModal
         visible={shareOpen}
         onClose={() => setShareOpen(false)}
         onSubmit={handlePublish}
       />
+
+      {/* AI Resource Generator */}
+      <AIResourceGenerator
+        visible={aiGeneratorOpen}
+        onClose={() => setAiGeneratorOpen(false)}
+        onGenerated={handlePublishAIResource}
+      />
     </Screen>
   );
 }
 
-// ----------------------------------------------------
-// NEW COMPONENT: Reusable Native-feeling Dropdown
-// ----------------------------------------------------
+/* ============================================================
+   DROPDOWN
+============================================================ */
+
 function Dropdown<T extends string>({
   label,
   options,
@@ -269,14 +343,17 @@ function Dropdown<T extends string>({
           {label}
         </Text>
       )}
+
       <Pressable
         onPress={() => setIsOpen(true)}
-        className="flex-row items-center justify-between px-4 py-3.5 bg-bg-medium border border-border rounded-2xl">
+        className="flex-row items-center justify-between px-4 py-3.5 bg-bg-medium border border-border rounded-2xl"
+      >
         <Text
           className={`text-sm ${
             value ? "text-text-primary" : "text-text-muted"
           }`}
-          numberOfLines={1}>
+          numberOfLines={1}
+        >
           {value || placeholder}
         </Text>
         <Feather name="chevron-down" size={16} color="#64748B" />
@@ -286,13 +363,16 @@ function Dropdown<T extends string>({
         visible={isOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsOpen(false)}>
+        onRequestClose={() => setIsOpen(false)}
+      >
         <Pressable
           className="flex-1 justify-end bg-black/70"
-          onPress={() => setIsOpen(false)}>
+          onPress={() => setIsOpen(false)}
+        >
           <Pressable
             onPress={(e) => e.stopPropagation()}
-            className="bg-bg-medium border-t border-border rounded-t-[2.5rem] p-6 pb-10 max-h-[70%] w-full">
+            className="bg-bg-medium border-t border-border rounded-t-[2.5rem] p-6 pb-10 max-h-[70%] w-full"
+          >
             <View className="flex-row justify-between items-center mb-6">
               <Text className="text-xl font-light text-text-primary">
                 {placeholder}
@@ -303,19 +383,20 @@ function Dropdown<T extends string>({
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Option to clear filter */}
               <Pressable
                 onPress={() => {
                   onSelect(null);
                   setIsOpen(false);
                 }}
-                className="py-4 border-b border-border flex-row justify-between items-center">
+                className="py-4 border-b border-border flex-row justify-between items-center"
+              >
                 <Text
                   className={`text-base ${
                     value === null
                       ? "text-primary font-bold"
                       : "text-text-primary"
-                  }`}>
+                  }`}
+                >
                   {placeholder.includes("Select")
                     ? "Clear Selection"
                     : `All (${placeholder.replace("All ", "")})`}
@@ -325,7 +406,6 @@ function Dropdown<T extends string>({
                 )}
               </Pressable>
 
-              {/* Mapped Options */}
               {options.map((opt) => (
                 <Pressable
                   key={opt}
@@ -333,13 +413,15 @@ function Dropdown<T extends string>({
                     onSelect(opt);
                     setIsOpen(false);
                   }}
-                  className="py-4 border-b border-border flex-row justify-between items-center">
+                  className="py-4 border-b border-border flex-row justify-between items-center"
+                >
                   <Text
                     className={`text-base ${
                       value === opt
                         ? "text-primary font-bold"
                         : "text-text-primary"
-                    }`}>
+                    }`}
+                  >
                     {opt}
                   </Text>
                   {value === opt && (
@@ -355,6 +437,10 @@ function Dropdown<T extends string>({
   );
 }
 
+/* ============================================================
+   RESOURCE CARD
+============================================================ */
+
 function ResourceCard({
   resource,
   currentUserId,
@@ -364,60 +450,491 @@ function ResourceCard({
   currentUserId?: string;
   onDelete: () => void;
 }) {
-  // Check dynamically if the active user created this resource
+  const [contentOpen, setContentOpen] = useState(false);
+
   const isOwner = currentUserId && resource.addedBy.id === currentUserId;
   const lc = levelColors[resource.level];
+  const isAIResource = resource.isAIGenerated === true && !!resource.content;
+
+  function handleExplore() {
+    if (isAIResource) {
+      setContentOpen(true);
+      return;
+    }
+
+    if (!resource.link) {
+      return;
+    }
+
+    Linking.openURL(resource.link);
+  }
 
   return (
-    <View className="bg-bg-medium border border-border rounded-[2rem] p-6">
-      <View className="flex-row items-start justify-between mb-5">
-        <View className="px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-xl">
-          <Text className="text-[9px] font-black uppercase tracking-widest text-primary">
-            {resource.skillName}
-          </Text>
-        </View>
-        <View
-          className="px-3 py-1.5 border rounded-xl"
-          style={{backgroundColor: lc.bg, borderColor: lc.border}}>
-          <Text
-            className="text-[9px] font-bold uppercase tracking-widest"
-            style={{color: lc.text}}>
-            {resource.level}
-          </Text>
-        </View>
-      </View>
-
-      <Text className="text-2xl font-extralight text-text-primary mb-2">
-        {resource.title}
-      </Text>
-      <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4">
-        By {resource.addedBy.name}
-      </Text>
-      <Text className="text-sm text-text-muted leading-5 mb-6">
-        {resource.description}
-      </Text>
-
-      <View className="flex-row items-center justify-between pt-5 border-t border-border">
-        <Pressable
-          onPress={() => Linking.openURL(resource.link)}
-          className="flex-row items-center gap-2">
-          <Text className="text-[10px] font-black uppercase tracking-widest text-primary">
-            Explore Resource
-          </Text>
-          <Feather name="arrow-right" size={14} color="#FFB300" />
-        </Pressable>
-
-        {isOwner && (
-          <Pressable onPress={onDelete}>
-            <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
-              Delete
+    <>
+      <View className="bg-bg-medium border border-border rounded-[2rem] p-6">
+        {/* Skill + Level */}
+        <View className="flex-row items-start justify-between mb-5">
+          <View className="px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-xl">
+            <Text className="text-[9px] font-black uppercase tracking-widest text-primary">
+              {resource.skillName}
             </Text>
-          </Pressable>
+          </View>
+
+          <View
+            className="px-3 py-1.5 border rounded-xl"
+            style={{
+              backgroundColor: lc.bg,
+              borderColor: lc.border,
+            }}
+          >
+            <Text
+              className="text-[9px] font-bold uppercase tracking-widest"
+              style={{
+                color: lc.text,
+              }}
+            >
+              {resource.level}
+            </Text>
+          </View>
+        </View>
+
+        {/* AI Badge */}
+        {isAIResource && (
+          <View className="flex-row items-center mb-4">
+            <View className="px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-xl flex-row items-center gap-1">
+              <Text className="text-xs">✨</Text>
+              <Text className="text-[9px] font-black uppercase tracking-widest text-primary">
+                AI Generated
+              </Text>
+            </View>
+          </View>
         )}
+
+        {/* Title */}
+        <Text className="text-2xl font-extralight text-text-primary mb-2">
+          {resource.title}
+        </Text>
+
+        {/* Author */}
+        <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4">
+          By {resource.addedBy.name}
+        </Text>
+
+        {/* Description */}
+        <Text className="text-sm text-text-muted leading-5 mb-6">
+          {resource.description}
+        </Text>
+
+        {/* Footer */}
+        <View className="flex-row items-center justify-between pt-5 border-t border-border">
+          <Pressable onPress={handleExplore} className="flex-row items-center gap-2">
+            <Text className="text-[10px] font-black uppercase tracking-widest text-primary">
+              Explore Resource
+            </Text>
+            <Feather name="arrow-right" size={14} color="#FFB300" />
+          </Pressable>
+
+          {isOwner && (
+            <Pressable onPress={onDelete}>
+              <Text className="text-[10px] font-black uppercase tracking-widest text-text-muted">
+                Delete
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {/* AI Resource Reader */}
+      {isAIResource && (
+        <ResourceReaderModal
+          visible={contentOpen}
+          resource={resource}
+          onClose={() => setContentOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/* ============================================================
+   AI RESOURCE READER
+============================================================ */
+
+function ResourceReaderModal({
+  visible,
+  resource,
+  onClose,
+}: {
+  visible: boolean;
+  resource: Resource;
+  onClose: () => void;
+}) {
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  async function handleDownloadPDF() {
+    try {
+      setDownloadingPdf(true);
+
+      await downloadAIResourceAsPDF({
+        title: resource.title,
+        skill: resource.skillName,
+        topic: resource.topic || "",
+        resourceType: (resource.resourceType || "AI Resource") as AIResourceData["resourceType"],
+        difficulty: resource.level,
+        content: resource.content || "",
+        isAIGenerated: true,
+      });
+    } catch (error) {
+      console.error("Failed to download PDF:", error);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 bg-black/90">
+        <View className="flex-1 mt-12 bg-bg-medium rounded-t-[2.5rem] border-t border-border">
+          {/* Header */}
+          <View className="px-6 pt-6 pb-5 border-b border-border">
+            <View className="flex-row items-start justify-between">
+              <View className="flex-1 pr-4">
+                <View className="flex-row items-center gap-2 mb-3">
+                  <View className="px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-xl flex-row items-center gap-1">
+                    <Text className="text-xs">✨</Text>
+                    <Text className="text-[9px] font-black uppercase tracking-widest text-primary">
+                      AI Generated
+                    </Text>
+                  </View>
+                </View>
+
+                <Text className="text-3xl font-extralight text-text-primary leading-9">
+                  {resource.title}
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={onClose}
+                className="w-10 h-10 rounded-full bg-bg-light border border-border items-center justify-center"
+              >
+                <Feather name="x" size={20} color="#94A3B8" />
+              </Pressable>
+            </View>
+
+            {/* Metadata */}
+            <View className="flex-row flex-wrap gap-2 mt-4">
+              <ReaderTag icon="book" label={resource.skillName} />
+
+              {resource.resourceType && (
+                <ReaderTag icon="file-text" label={resource.resourceType} />
+              )}
+
+              {resource.level && (
+                <ReaderTag icon="bar-chart-2" label={resource.level} />
+              )}
+            </View>
+
+            {resource.topic && (
+              <View className="flex-row items-center mt-4">
+                <Feather name="bookmark" size={13} color="#FFB300" />
+                <Text className="text-xs text-text-muted ml-2">
+                  Topic: <Text className="text-text-primary">{resource.topic}</Text>
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Content */}
+          <ScrollView
+            className="flex-1"
+            contentContainerStyle={{
+              paddingHorizontal: 24,
+              paddingTop: 24,
+              paddingBottom: 50,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            {resource.content ? (
+              <FormattedContent content={resource.content} />
+            ) : (
+              <Text className="text-text-muted">No content available.</Text>
+            )}
+          </ScrollView>
+
+          <Pressable
+            onPress={handleDownloadPDF}
+            disabled={downloadingPdf}
+            className="mx-6 mb-6 py-4 rounded-2xl border border-primary/30 bg-bg-light items-center"
+          >
+            <View className="flex-row items-center gap-2">
+              <Feather name="download" size={14} color="#FFB300" />
+              <Text className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">
+                {downloadingPdf ? "Creating PDF..." : "Download as PDF"}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   READER TAG
+============================================================ */
+
+function ReaderTag({
+  icon,
+  label,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  label: string;
+}) {
+  return (
+    <View className="flex-row items-center px-3 py-2 rounded-xl bg-bg-light border border-border">
+      <Feather name={icon} size={12} color="#FFB300" />
+      <Text className="text-[9px] font-black uppercase tracking-widest text-text-muted ml-2">
+        {label}
+      </Text>
     </View>
   );
 }
+
+/* ============================================================
+   FORMATTED AI CONTENT
+============================================================ */
+
+function FormattedContent({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const elements: React.ReactNode[] = [];
+
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+
+  function flushCodeBlock() {
+    if (codeLines.length === 0) {
+      return;
+    }
+
+    elements.push(
+      <View
+        key={`code-${elements.length}`}
+        className="my-3 rounded-2xl bg-[#090D16] border border-border overflow-hidden"
+      >
+        <View className="px-4 py-2.5 bg-bg-light border-b border-border flex-row items-center gap-2">
+          <View className="w-2 h-2 rounded-full bg-primary" />
+          <Text className="text-[9px] font-black uppercase tracking-widest text-primary">
+            Code
+          </Text>
+        </View>
+        <Text className="px-4 py-4 text-xs leading-5 text-[#CBD5E1] font-mono">
+          {codeLines.join("\n")}
+        </Text>
+      </View>,
+    );
+
+    codeLines = [];
+  }
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+
+    /* Code blocks */
+    if (line.startsWith("```")) {
+      if (inCodeBlock) {
+        inCodeBlock = false;
+        flushCodeBlock();
+      } else {
+        inCodeBlock = true;
+        codeLines = [];
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      return;
+    }
+
+    /* Empty line */
+    if (!line) {
+      elements.push(<View key={`space-${index}`} className="h-2" />);
+      return;
+    }
+
+    /* Markdown headings */
+    if (
+      line.startsWith("# ") ||
+      line.startsWith("## ") ||
+      line.startsWith("### ")
+    ) {
+      const heading = line.replace(/^#{1,3}\s*/, "");
+
+      elements.push(
+        <View key={`heading-${index}`} className="mt-5 mb-3">
+          <View className="flex-row items-center">
+            <View className="w-1 h-6 rounded-full bg-primary mr-3" />
+            <Text className="flex-1 text-xl font-bold text-text-primary">
+              {renderInlineMarkdown(heading)}
+            </Text>
+          </View>
+        </View>,
+      );
+      return;
+    }
+
+    /* Step headings */
+    const stepMatch = line.match(/^(Step\s*\d+)\s*[:.-]?\s*(.*)$/i);
+
+    if (stepMatch) {
+      elements.push(
+        <View key={`step-${index}`} className="mt-5 mb-3">
+          <View className="flex-row items-center">
+            <View className="w-10 h-10 rounded-xl bg-primary items-center justify-center mr-3">
+              <Text className="text-black text-[10px] font-black">
+                {stepMatch[1].replace(/\s+/g, "").toUpperCase()}
+              </Text>
+            </View>
+            <Text className="flex-1 text-lg font-bold text-text-primary">
+              {renderInlineMarkdown(stepMatch[2])}
+            </Text>
+          </View>
+        </View>,
+      );
+      return;
+    }
+
+    /* Numbered list */
+    const numberedMatch = line.match(/^(\d+)[.)]\s+(.*)$/);
+
+    if (numberedMatch) {
+      elements.push(
+        <View key={`number-${index}`} className="flex-row items-start mb-3">
+          <View className="w-7 h-7 rounded-lg bg-primary/15 border border-primary/25 items-center justify-center mr-3 mt-0.5">
+            <Text className="text-primary text-xs font-black">
+              {numberedMatch[1]}
+            </Text>
+          </View>
+          <Text className="flex-1 text-sm leading-6 text-text-primary">
+            {renderInlineMarkdown(numberedMatch[2])}
+          </Text>
+        </View>,
+      );
+      return;
+    }
+
+    /* Bullet list */
+    const bulletMatch = line.match(/^[-*•]\s+(.*)$/);
+
+    if (bulletMatch) {
+      elements.push(
+        <View key={`bullet-${index}`} className="flex-row items-start mb-2.5">
+          <View className="w-2 h-2 rounded-full bg-primary mt-2.5 mr-3" />
+          <Text className="flex-1 text-sm leading-6 text-text-primary">
+            {renderInlineMarkdown(bulletMatch[1])}
+          </Text>
+        </View>,
+      );
+      return;
+    }
+
+    /* Important / Note / Tip */
+    const specialMatch = line.match(/^(Important|Note|Tip|Warning)\s*:\s*(.*)$/i);
+
+    if (specialMatch) {
+      elements.push(
+        <View
+          key={`special-${index}`}
+          className="my-3 p-4 rounded-2xl bg-primary/10 border border-primary/20"
+        >
+          <View className="flex-row items-center mb-2">
+            <Feather
+              name={
+                specialMatch[1].toLowerCase() === "warning"
+                  ? "alert-triangle"
+                  : "info"
+              }
+              size={14}
+              color="#FFB300"
+            />
+            <Text className="ml-2 text-[10px] font-black uppercase tracking-widest text-primary">
+              {specialMatch[1]}
+            </Text>
+          </View>
+          <Text className="text-sm leading-6 text-text-primary">
+            {renderInlineMarkdown(specialMatch[2])}
+          </Text>
+        </View>,
+      );
+      return;
+    }
+
+    /* Normal paragraph */
+    elements.push(
+      <Text key={`paragraph-${index}`} className="text-sm leading-6 text-text-primary mb-2">
+        {renderInlineMarkdown(line)}
+      </Text>,
+    );
+  });
+
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+
+  return <View>{elements}</View>;
+}
+
+/* ============================================================
+   INLINE MARKDOWN
+============================================================ */
+
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*.*?\*\*|__.*?__|`.*?`)/g);
+
+  return parts.map((part, index) => {
+    if (!part) {
+      return null;
+    }
+
+    /* Bold */
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <Text key={index} className="font-bold text-primary">
+          {part.slice(2, -2)}
+        </Text>
+      );
+    }
+
+    /* Alternative bold */
+    if (part.startsWith("__") && part.endsWith("__")) {
+      return (
+        <Text key={index} className="font-bold text-primary">
+          {part.slice(2, -2)}
+        </Text>
+      );
+    }
+
+    /* Inline code */
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <Text key={index} className="text-primary font-mono">
+          {part.slice(1, -1)}
+        </Text>
+      );
+    }
+
+    return <Text key={index}>{part}</Text>;
+  });
+}
+
+/* ============================================================
+   SHARE RESOURCE MODAL
+============================================================ */
 
 function ShareResourceModal({
   visible,
@@ -449,14 +966,10 @@ function ShareResourceModal({
   }
 
   function handleSubmit() {
-    if (
-      !skillName ||
-      !level ||
-      !title.trim() ||
-      !link.trim() ||
-      !description.trim()
-    )
+    if (!skillName || !level || !title.trim() || !link.trim() || !description.trim()) {
       return;
+    }
+
     onSubmit({
       title: title.trim(),
       description: description.trim(),
@@ -464,6 +977,7 @@ function ShareResourceModal({
       skillName,
       level,
     });
+
     reset();
   }
 
@@ -472,13 +986,16 @@ function ShareResourceModal({
       visible={visible}
       animationType="fade"
       transparent
-      onRequestClose={onClose}>
+      onRequestClose={onClose}
+    >
       <Pressable
         className="flex-1 bg-black/90 items-center justify-center px-6"
-        onPress={onClose}>
+        onPress={onClose}
+      >
         <Pressable
           onPress={(e) => e.stopPropagation()}
-          className="w-full bg-bg-medium border border-border rounded-[2.5rem] p-8 max-h-[85%]">
+          className="w-full bg-bg-medium border border-border rounded-[2.5rem] p-8 max-h-[85%]"
+        >
           <ScrollView showsVerticalScrollIndicator={false}>
             <View className="flex-row items-start justify-between mb-2">
               <Text className="text-3xl font-extralight text-text-primary">
@@ -488,12 +1005,12 @@ function ShareResourceModal({
                 <Feather name="x" size={20} color="#64748B" />
               </Pressable>
             </View>
+
             <Text className="text-sm italic text-text-muted mb-6">
               "Knowledge is power. Sharing it is the premise of progress."
             </Text>
 
             <View className="gap-4">
-              {/* Dropdowns used in Modal Form! */}
               <View className="flex-row gap-3 z-10">
                 <Dropdown
                   label="Skill"
@@ -557,7 +1074,8 @@ function ShareResourceModal({
 
               <Pressable
                 onPress={handleSubmit}
-                className="py-4 rounded-2xl bg-primary items-center mt-2">
+                className="py-4 rounded-2xl bg-primary items-center mt-2"
+              >
                 <Text className="text-black text-[10px] font-black uppercase tracking-[0.2em]">
                   Publish Resource
                 </Text>
