@@ -18,6 +18,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { submitSkillReview } from "./reviewsService";
 
 export type ClassStatus = "live" | "upcoming" | "completed";
 export type ClassPlatform = "Google Meet" | "Zoom" | "MS Teams" | "Discord";
@@ -210,12 +211,21 @@ export async function upvoteQuestion(classId: string, questionId: string, userId
 }
 
 // ── Post-class review ─────────────────────────────────────────────────
+// Routed through the shared reviewService so class reviews land in the
+// same top-level "reviews" collection as skill reviews — this way a
+// mentor's rating/reviewCount aggregates both, and fetchReviewsForMentor
+// picks these up automatically without a separate read path.
 export async function submitClassReview(
-  classId: string,
+  liveClass: LiveClass,
   params: { reviewerId: string; reviewerName: string; rating: number; comment: string }
 ) {
-  await addDoc(collection(db, "classes", classId, "reviews"), {
-    ...params,
-    createdAt: serverTimestamp(),
+  await submitSkillReview({
+    reviewerId: params.reviewerId,
+    reviewerName: params.reviewerName,
+    mentorId: liveClass.mentorId,
+    skillId: liveClass.id,
+    skillName: liveClass.title,
+    rating: params.rating,
+    comment: params.comment,
   });
 }

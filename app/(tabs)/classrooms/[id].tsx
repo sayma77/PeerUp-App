@@ -194,7 +194,7 @@ export default function ClassDetail() {
       const meSnap = await getDoc(doc(db, "users", user.uid));
       const reviewerName = meSnap.exists() ? meSnap.data().name : "Someone";
 
-      await submitClassReview(liveClass.id, {
+      await submitClassReview(liveClass, {
         reviewerId: user.uid,
         reviewerName,
         rating,
