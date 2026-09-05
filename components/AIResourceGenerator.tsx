@@ -18,6 +18,7 @@ import {
   refineAIResource,
   downloadAIResourceAsPDF,
 } from "../services/resourceService";
+import AIResourcePreview from "./AIResourcePreview";
 
 import { SKILL_OPTIONS } from "../types/resources";
 
@@ -66,6 +67,8 @@ export default function AIResourceGenerator({
   // =========================
   const [resource, setResource] =
     useState<AIResourceData | null>(null);
+    const [previewOpen, setPreviewOpen] = useState(false);
+
 
   // =========================
   // Editing
@@ -97,6 +100,7 @@ export default function AIResourceGenerator({
     setResourceType(null);
     setDifficulty(null);
     setResource(null);
+    setPreviewOpen(false);
     setEditing(false);
     setEditTitle("");
     setEditContent("");
@@ -152,6 +156,7 @@ export default function AIResourceGenerator({
       setPreviousResources([]);
       setInstruction("");
       setEditing(false);
+      setPreviewOpen(true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -307,8 +312,9 @@ export default function AIResourceGenerator({
   }
 
   return (
+    <>
     <Modal
-      visible={visible}
+      visible={visible && !previewOpen}
       animationType="fade"
       transparent
       onRequestClose={handleClose}
@@ -658,7 +664,20 @@ export default function AIResourceGenerator({
         </Pressable>
       </Pressable>
     </Modal>
+    
+
+    <AIResourcePreview
+      visible={previewOpen}
+      resource={resource}
+      onClose={() => {
+        setPreviewOpen(false);
+        setResource(null);
+      }}
+      onPublish={handlePublish}
+    />
+  </>
   );
+
 }
 
 // ================================================================
