@@ -1,5 +1,6 @@
 // profile/index.tsx
-import { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback, useState } from "react";
 import ProfileView from "../../../components/ProfileView";
 import Screen from "../../../components/Screen";
 import { useAuth } from "../../../context/AuthContext";
@@ -21,35 +22,47 @@ export default function MyProfile() {
   const [completed, setCompleted] = useState<CompletedSession[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  console.log("MyProfile render, user:", user);
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const [profile, off, learn, comp, rev] = await Promise.all([
-          fetchProfileByUid(user.uid),
-          fetchOfferedSkills(user.uid),
-          fetchLearningSessions(user.uid),
-          fetchCompletedSessions(user.uid),
-          fetchReviews(user.uid),
-        ]);
-        console.log("fetched profile:", profile);
-        if (cancelled) return;
-        setProfileUser(profile);
-        setOffered(off);
-        setLearning(learn);
-        setCompleted(comp);
-        setReviews(rev);
-      } catch (e) {
-        console.error("Failed to load profile", e);
-        showToast("Couldn't load your profile", "error");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [user]);
+  // Refetches every time the Profile tab gains focus — not just once on
+  // mount — so skills added from Dashboard ("My Skills" / "Share Your
+  // Knowledge") show up here immediately when you switch tabs, instead
+  // of needing an app reload.
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      let cancelled = false;
+
+      // Only show the full-screen spinner on the very first load; a
+      // refocus refresh happens quietly behind the existing content.
+      if (!profileUser) setLoading(true);
+
+      (async () => {
+        try {
+          const [profile, off, learn, comp, rev] = await Promise.all([
+            fetchProfileByUid(user.uid),
+            fetchOfferedSkills(user.uid),
+            fetchLearningSessions(user.uid),
+            fetchCompletedSessions(user.uid),
+            fetchReviews(user.uid),
+          ]);
+          if (cancelled) return;
+          setProfileUser(profile);
+          setOffered(off);
+          setLearning(learn);
+          setCompleted(comp);
+          setReviews(rev);
+        } catch (e) {
+          console.error("Failed to load profile", e);
+          showToast("Couldn't load your profile", "error");
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [user]),
+  );
 
   if (loading || !profileUser || !user) {
     return (

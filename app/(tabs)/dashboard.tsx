@@ -32,6 +32,8 @@ import {
 
 import Screen from "../../components/Screen";
 
+import SkillPathRecommender from "../../components/SkillPathRecommender";
+
 import { useAuth } from "../../context/AuthContext";
 
 import { useToast } from "../../context/ToastContext";
@@ -724,17 +726,23 @@ export default function Dashboard() {
 
         {activeTab === "overview" && (
 
-          <OverviewTab
+          <>
 
-            user={MOCK_USER}
+            {user && <SkillPathRecommender uid={user.uid} />}
 
-            incoming={incoming}
+            <OverviewTab
 
-            outgoing={outgoing}
+              user={MOCK_USER}
 
-            onUpdateStatus={updateIncomingStatus}
+              incoming={incoming}
 
-          />
+              outgoing={outgoing}
+
+              onUpdateStatus={updateIncomingStatus}
+
+            />
+
+          </>
 
         )}
 

@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { doc, getDoc } from "firebase/firestore";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getOrCreateConversation } from "../../services/chatService";
 import {
   ActivityIndicator,
@@ -30,12 +30,16 @@ export default function Skills() {
   const router = useRouter();
   const { showToast } = useToast();
   const { user } = useAuth();
+  // Lets other screens (like the Skill Path Recommender) deep-link here
+  // with a suggested skill pre-filled in the search box, e.g.
+  // router.push({ pathname: "/(tabs)/skills", params: { q: "React" } }).
+  const { q } = useLocalSearchParams<{ q?: string }>();
 
   const [skills, setSkills] = useState<SkillCard[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(typeof q === "string" ? q : "");
   const [category, setCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
@@ -44,6 +48,10 @@ export default function Skills() {
   const [loadingMentor, setLoadingMentor] = useState(false);
   const [sendingRequest, setSendingRequest] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
+
+  useEffect(() => {
+    if (typeof q === "string" && q.length > 0) setSearch(q);
+  }, [q]);
 
   useFocusEffect(
     useCallback(() => {
