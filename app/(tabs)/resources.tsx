@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Linking,
   Modal,
@@ -10,6 +10,16 @@ import {
   TextInput,
   View,
 } from "react-native";
+
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+} from "firebase/firestore";
+
+import { db } from "../../firebaseConfig";
 
 import Screen from "../../components/Screen";
 import AIResourceGenerator from "../../components/AIResourceGenerator";
@@ -89,13 +99,78 @@ export default function Resources() {
   const { user } = useAuth();
   const currentUserId = user?.uid || "anon";
 
-  const [resources, setResources] = useState<Resource[]>(MOCK_RESOURCES);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [search, setSearch] = useState("");
   const [skillFilter, setSkillFilter] = useState<string | null>(null);
   const [levelFilter, setLevelFilter] = useState<ResourceLevel | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [shareOpen, setShareOpen] = useState(false);
   const [aiGeneratorOpen, setAiGeneratorOpen] = useState(false);
+
+ useEffect(() => {
+  async function loadResources() {
+    try {
+      const snapshot = await getDocs(collection(db, "resources"));
+
+      // Sort Firestore resources by newest first
+      const sortedDocs = [...snapshot.docs].sort((a, b) => {
+        const aTime = a.data().createdAt?.toMillis?.() ?? 0;
+        const bTime = b.data().createdAt?.toMillis?.() ?? 0;
+
+        return bTime - aTime;
+      });
+
+      const firestoreResources: Resource[] = sortedDocs.map((item) => {
+        const data = item.data();
+
+        return {
+          id: item.id,
+          title: data.title,
+          description: data.description,
+          link: data.link ?? "",
+          skillName: data.skillName,
+          level: data.level,
+          addedBy: {
+            id: data.addedBy,
+            name:
+             data.addedBy === currentUserId
+              ? user?.email?.split("@")[0] || "User"
+             : "User",
+           },
+          content: data.content,
+          isAIGenerated: data.isAIGenerated,
+          resourceType: data.resourceType,
+          topic: data.topic,
+        };
+      });
+
+      // Your newly-created resources first
+      const myResources = firestoreResources.filter(
+        (resource) => resource.addedBy.id === currentUserId
+      );
+
+      // Seed resources after the mock resources
+      const seedResources = firestoreResources.filter(
+        (resource) => resource.addedBy.id !== currentUserId
+      );
+
+      // Exact order:
+      // 1. Newly created resources
+      // 2. Mock resources
+      // 3. Seed resources
+      setResources([
+        ...myResources,
+        ...MOCK_RESOURCES,
+        ...seedResources,
+      ]);
+    } catch (error) {
+      console.error("Failed to load resources:", error);
+      showToast("Failed to load resources", "error");
+    }
+  }
+
+  loadResources();
+}, [currentUserId]);
 
   const filtered = resources.filter((r) => {
     const q = search.trim().toLowerCase();
@@ -114,25 +189,40 @@ export default function Resources() {
   const visible = filtered.slice(0, visibleCount);
   const canLoadMore = visibleCount < filtered.length;
 
-  function handleDelete(resource: Resource) {
-    // TODO: delete the resource doc in Firestore
+  async function handleDelete(resource: Resource) {
+  try {
+    await deleteDoc(doc(db, "resources", resource.id));
+
     setResources((prev) => prev.filter((r) => r.id !== resource.id));
-
     showToast("Resource deleted", "success");
+  } catch (error) {
+    console.error("Failed to delete resource:", error);
+    showToast("Failed to delete resource", "error");
   }
+}
 
-  function handlePublish(data: {
-    title: string;
-    description: string;
-    link: string;
-    skillName: string;
-    level: ResourceLevel;
-  }) {
-    const currentName = user?.email?.split("@")[0] || "User";
+async function handlePublish(data: {
+  title: string;
+  description: string;
+  link: string;
+  skillName: string;
+  level: ResourceLevel;
+}) {
+  const currentName = user?.email?.split("@")[0] || "User";
 
-    // TODO: create the resource doc in Firestore
+  try {
+    const docRef = await addDoc(collection(db, "resources"), {
+      title: data.title,
+      description: data.description,
+      link: data.link,
+      skillName: data.skillName,
+      level: data.level,
+      addedBy: currentUserId,
+      createdAt: new Date(),
+    });
+
     const newResource: Resource = {
-      id: `r${Date.now()}`,
+      id: docRef.id,
       title: data.title,
       description: data.description,
       link: data.link,
@@ -148,14 +238,32 @@ export default function Resources() {
     setShareOpen(false);
 
     showToast("Resource published", "success");
+  } catch (error) {
+    console.error("Failed to publish resource:", error);
+    showToast("Failed to publish resource", "error");
   }
+}
 
-  function handlePublishAIResource(data: AIResourceData) {
-    const currentName = user?.email?.split("@")[0] || "User";
+ async function handlePublishAIResource(data: AIResourceData) {
+  const currentName = user?.email?.split("@")[0] || "User";
 
-    // TODO: create the AI resource doc in Firestore
+  try {
+    const docRef = await addDoc(collection(db, "resources"), {
+      title: data.title,
+      description: `${data.resourceType} · ${data.topic}`,
+      link: "",
+      skillName: data.skill,
+      level: data.difficulty ?? "Beginner",
+      addedBy: currentUserId,
+      content: data.content,
+      isAIGenerated: true,
+      resourceType: data.resourceType,
+      topic: data.topic,
+      createdAt: new Date(),
+    });
+
     const newResource: Resource = {
-      id: `r${Date.now()}`,
+      id: docRef.id,
       title: data.title,
       description: `${data.resourceType} · ${data.topic}`,
       link: "",
@@ -175,7 +283,11 @@ export default function Resources() {
     setAiGeneratorOpen(false);
 
     showToast("AI resource published", "success");
+  } catch (error) {
+    console.error("Failed to publish AI resource:", error);
+    showToast("Failed to publish AI resource", "error");
   }
+}
 
   return (
     <Screen user={user ? { name: user.email ?? "You" } : null}>

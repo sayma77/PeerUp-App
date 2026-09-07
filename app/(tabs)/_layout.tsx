@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { CommonActions, type NavigationState } from "@react-navigation/native";
 import { Tabs } from "expo-router";
 import { View } from "react-native";
 import { useAuth } from "../../context/AuthContext";
@@ -48,6 +49,18 @@ export default function TabsLayout() {
               <Feather name="video" color={color} size={size} />
             ),
           }}
+          listeners={({navigation}) => ({
+            blur: () => {
+              navigation.dispatch((state: NavigationState) => {
+                const routes = state.routes.map((route) =>
+                  route.name === "classrooms"
+                    ? {...route, state: undefined}
+                    : route,
+                );
+                return CommonActions.reset({...state, routes});
+              });
+            },
+          })}
         />
         <Tabs.Screen
           name="projects"

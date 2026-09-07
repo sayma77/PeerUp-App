@@ -20,10 +20,19 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && request.resource.data.requesterId == request.auth.uid
                     && request.resource.data.status == "pending";
-      allow read: if request.auth != null
-                    && (resource.data.requesterId == request.auth.uid
-                        || resource.data.mentorId == request.auth.uid);
-       allow update: if request.auth != null
+
+      // A pending/declined request is only visible to the two people
+      // involved. Once a request is accepted or completed, it also needs
+      // to be readable by anyone — public profile pages show a user's
+      // learning/completed sessions via fetchLearningSessions/
+      // fetchCompletedSessions, which query this collection for a uid
+      // that usually isn't the logged-in viewer.
+      allow read: if (request.auth != null
+                        && (resource.data.requesterId == request.auth.uid
+                            || resource.data.mentorId == request.auth.uid))
+                      || resource.data.status in ["accepted", "completed"];
+
+      allow update: if request.auth != null
                 && resource.data.mentorId == request.auth.uid;
     }
 
