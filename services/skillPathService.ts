@@ -6,12 +6,8 @@
 // features are routed by the "action" field in the request body, so
 // there's one deployment and one Gemini key for both. Nothing AI-related
 // runs or is keyed on the client.
-//
-// After deploying the Worker (`npx wrangler deploy` from the
-// cloudflare-worker/ folder), paste the printed URL below — it should
-// match the URL already used in services/fitService.ts.
 
-import {getAuth} from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import {
   SkillPathHistoryItem,
   SkillPathRecommendation,
@@ -19,6 +15,10 @@ import {
 
 // Shared with services/fitService.ts — same worker, same URL.
 const AI_PROXY_URL = "https://peerup-fit-proxy.peerup-swe.workers.dev";
+
+// Module-level in-flight promise tracker to deduplicate simultaneous calls (e.g. React StrictMode / fast double taps)
+let activeRequestPromise: Promise<SkillPathRecommendation> | null = null;
+let activeRequestKey = "";
 
 export type RecommendSkillPathParams = {
   // Skills the user has finished learning (completed sessions).
@@ -49,6 +49,34 @@ export async function recommendNextSkill(
     );
   }
 
+  // Create a fingerprint of the payload to identify duplicate concurrent executions
+  const requestFingerprint = JSON.stringify({
+    uid: user.uid,
+    completed: params.completedSkills.map((s) => s.name || s.id).sort(),
+    learning: params.learningSkills.map((s) => s.name || s.id).sort(),
+    offered: params.offeredSkills.map((s) => s.name || s.id).sort(),
+  });
+
+  // If an identical request is already in-flight, return the existing promise
+  if (activeRequestPromise && activeRequestKey === requestFingerprint) {
+    return activeRequestPromise;
+  }
+
+  activeRequestKey = requestFingerprint;
+  activeRequestPromise = executeRecommendationRequest(user, params).finally(() => {
+    // Clear lock once finished
+    activeRequestPromise = null;
+    activeRequestKey = "";
+  });
+
+  return activeRequestPromise;
+}
+
+async function executeRecommendationRequest(
+  user: any,
+  params: RecommendSkillPathParams,
+  attempt = 1,
+): Promise<SkillPathRecommendation> {
   const idToken = await user.getIdToken();
 
   let response: Response;
@@ -59,26 +87,26 @@ export async function recommendNextSkill(
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({action: "recommend-skill-path", ...params}),
+      body: JSON.stringify({ action: "recommend-skill-path", ...params }),
     });
   } catch (networkErr: any) {
-    // fetch() itself threw — bad URL, no network, CORS block, etc.
+    // Retry once on network hiccups or timeouts
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return executeRecommendationRequest(user, params, attempt + 1);
+    }
+
     console.error("Skill path network error:", networkErr);
     throw new Error(
       `Couldn't reach the AI worker (${networkErr?.message || "network error"}). Check AI_PROXY_URL and your connection.`,
     );
   }
 
-  // Read the body as text ONCE, then try to parse it. This lets us
-  // show the real problem (HTML error page, empty body, wrong shape,
-  // etc.) instead of a generic message when something upstream breaks.
   const rawText = await response.text();
   let body: any = null;
   try {
     body = rawText ? JSON.parse(rawText) : null;
   } catch {
-    // Not JSON — likely a Cloudflare error page (wrong URL, worker
-    // crashed, etc). Surface a snippet so it's debuggable.
     console.error(
       `Skill path worker returned non-JSON (status ${response.status}):`,
       rawText.slice(0, 300),
@@ -90,11 +118,15 @@ export async function recommendNextSkill(
     );
   }
 
+  // Handle transient 502 / 503 / 504 gateway errors with a single automatic backoff retry
+  if ((response.status === 502 || response.status === 503 || response.status === 504) && attempt < 2) {
+    console.warn(`Encountered upstream ${response.status} from Gemini. Retrying once...`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return executeRecommendationRequest(user, params, attempt + 1);
+  }
+
   if (!response.ok) {
-    console.error(
-      `Skill path worker error (status ${response.status}):`,
-      body,
-    );
+    console.error(`Skill path worker error (status ${response.status}):`, body);
     throw new Error(
       body?.error
         ? `${body.error} (status ${response.status})`

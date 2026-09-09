@@ -51,11 +51,17 @@ export default function Login() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: "#070A10" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
     >
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: Platform.OS === "ios" ? 140 : 180,
+        }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets={true}
       >
         <View className="px-5 pt-10">
           <Pressable
@@ -66,7 +72,7 @@ export default function Login() {
           </Pressable>
         </View>
 
-        <View className="flex-1 justify-center px-6 py-10">
+        <View className="flex-1 justify-center px-6 py-6">
           <View className="bg-bg-medium border border-border rounded-2xl p-8">
             <View className="mb-10 items-center">
               <Text className="text-4xl font-extralight text-text-primary mb-3">

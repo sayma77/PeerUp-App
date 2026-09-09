@@ -17,11 +17,10 @@ import { auth, db } from "../../firebaseConfig";
 
 const EMAIL_REGEX = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
 
-// TODO: replace with a real Firestore query once the users collection exists
 async function checkUsernameAvailable(username: string): Promise<boolean> {
   return true;
 }
-// TODO: replace with a real Firestore query (or just let Firebase Auth handle duplicate emails)
+
 async function checkEmailAvailable(email: string): Promise<boolean> {
   return true;
 }
@@ -151,10 +150,6 @@ export default function Register() {
       return setFormError("Something went wrong creating your account.");
     }
 
-    // Auth account now exists — from here on, don't leave the user stuck.
-    // Retry the profile write a couple of times; if it still fails,
-    // AuthContext's ensureUserProfile will create a placeholder doc on
-    // next auth state change, so we still navigate forward either way.
     const profileData = {
       name,
       username,
@@ -179,10 +174,6 @@ export default function Register() {
     }
 
     if (!profileSaved) {
-      // Not fatal: ensureUserProfile in AuthContext will create a
-      // placeholder doc automatically on the next auth state change.
-      // Let the user know their name/username may not have saved
-      // correctly so they think to check Edit Profile.
       console.warn(
         "Profile doc could not be created during signup; will self-heal with placeholder data on next auth check.",
       );
@@ -195,10 +186,16 @@ export default function Register() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-bg-light"
-      behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
       <ScrollView
-        contentContainerStyle={{flexGrow: 1}}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: Platform.OS === "ios" ? 140 : 180,
+        }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets={true}>
         <View className="px-5 pt-10">
           <Pressable
             onPress={handleBack}
@@ -207,7 +204,7 @@ export default function Register() {
           </Pressable>
         </View>
 
-        <View className="flex-1 justify-center px-6 py-10">
+        <View className="flex-1 justify-center px-6 py-6">
           <View className="bg-bg-medium border border-border rounded-2xl p-8">
             <View className="mb-8">
               <Text className="text-4xl font-extralight text-text-primary mb-2">
