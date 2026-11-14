@@ -1,24 +1,40 @@
 import { Feather } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
-import { useState } from "react";
-import { Modal, Pressable, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { auth } from "../firebaseConfig";
+import {
+  AppNotification,
+  markAllNotificationsRead,
+  subscribeToNotifications,
+} from "../services/notificationsService";
 
 type HeaderProps = {
   user?: {name: string} | null;
   unreadMessageCount?: number;
-  notificationCount?: number;
 };
 
 export default function Header({
   user = null,
   unreadMessageCount = 0,
-  notificationCount = 0,
 }: HeaderProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const router = useRouter();
+  const uid = auth.currentUser?.uid;
+
+  // Live-listen to this user's notifications
+  useEffect(() => {
+    if (!user || !uid) {
+      setNotifications([]);
+      return;
+    }
+    return subscribeToNotifications(uid, setNotifications);
+  }, [user, uid]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <View className="w-full h-20 flex-row items-center justify-between px-4 border-b border-border bg-bg-light">
@@ -46,13 +62,16 @@ export default function Header({
 
         {user && (
           <Pressable
-            onPress={() => setNotifOpen(true)}
+            onPress={() => {
+              setNotifOpen(true);
+              markAllNotificationsRead(notifications).catch(() => {});
+            }}
             className="p-2 rounded-lg border border-border relative">
             <Feather name="bell" size={18} color="#64748B" />
-            {notificationCount > 0 && (
+            {unreadCount > 0 && (
               <View className="absolute -top-1 -right-1 bg-red-500 rounded-full min-w-[16px] h-4 px-1 items-center justify-center">
                 <Text className="text-white text-[9px] font-bold">
-                  {notificationCount}
+                  {unreadCount > 9 ? "9+" : unreadCount}
                 </Text>
               </View>
             )}
@@ -149,9 +168,33 @@ export default function Header({
                 <Feather name="x" size={16} color="#64748B" />
               </Pressable>
             </View>
-            <View className="items-center justify-center py-10">
-              <Text className="text-xs text-text-muted">All caught up!</Text>
-            </View>
+
+            {notifications.length === 0 ? (
+              <View className="items-center justify-center py-10">
+                <Text className="text-xs text-text-muted">All caught up!</Text>
+              </View>
+            ) : (
+              <ScrollView>
+                {notifications.map((n) => (
+                  <Pressable
+                    key={n.id}
+                    onPress={() => {
+                      setNotifOpen(false);
+                      router.push(n.link as any);
+                    }}
+                    className="px-5 py-3 border-b border-border">
+                    <Text
+                      className={`text-xs ${
+                        n.read
+                          ? "text-text-muted"
+                          : "text-text-primary font-medium"
+                      }`}>
+                      {n.message}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
           </Pressable>
         </Pressable>
       </Modal>

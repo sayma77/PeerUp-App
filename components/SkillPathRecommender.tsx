@@ -9,28 +9,33 @@
 // Drop this in anywhere a logged-in user is shown their own dashboard —
 // it's self-contained and fetches its own data from `uid`.
 
-import {Feather} from "@expo/vector-icons";
-import {useRouter} from "expo-router";
-import {useCallback, useEffect, useState} from "react";
-import {ActivityIndicator, Pressable, Text, View} from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   fetchCompletedSessions,
   fetchLearningSessions,
   fetchOfferedSkills,
 } from "../services/profileService";
-import {recommendNextSkill} from "../services/skillPathService";
-import {SkillPathRecommendation} from "../types/skillPath";
+import { recommendNextSkill } from "../services/skillPathService";
+import { SkillPathRecommendation } from "../types/skillPath";
 
 type Props = {
   uid: string;
 };
 
-type LoadState = "loading-history" | "ready" | "recommending" | "error";
+type LoadState =
+  | "idle"
+  | "loading-history"
+  | "ready"
+  | "recommending"
+  | "error";
 
 export default function SkillPathRecommender({uid}: Props) {
   const router = useRouter();
 
-  const [state, setState] = useState<LoadState>("loading-history");
+  const [state, setState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recommendation, setRecommendation] =
     useState<SkillPathRecommendation | null>(null);
@@ -38,7 +43,7 @@ export default function SkillPathRecommender({uid}: Props) {
 
   const generate = useCallback(async () => {
     setErrorMessage(null);
-    setState((prev) => (prev === "loading-history" ? prev : "recommending"));
+    setState("recommending");
 
     try {
       const [completed, learning, offered] = await Promise.all([
@@ -88,10 +93,6 @@ export default function SkillPathRecommender({uid}: Props) {
     }
   }, [uid]);
 
-  useEffect(() => {
-    generate();
-  }, [generate]);
-
   function exploreSkill(skillName: string) {
     router.push({
       pathname: "/(tabs)/skills",
@@ -120,6 +121,22 @@ export default function SkillPathRecommender({uid}: Props) {
           </Pressable>
         )}
       </View>
+
+      {state === "idle" && (
+        <View className="py-4 gap-4">
+          <Text className="text-sm text-text-muted leading-5">
+            Discover a smart next skill to learn tailored to your learning
+            history and offered skills.
+          </Text>
+          <Pressable
+            onPress={generate}
+            className="py-3 rounded-xl bg-primary/10 border border-primary/20 items-center flex-row justify-center gap-2">
+            <Text className="text-[10px] font-bold uppercase tracking-widest text-primary">
+              Get Recommendation
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {(state === "loading-history" || state === "recommending") && (
         <View className="py-6 items-center gap-2">
@@ -185,8 +202,7 @@ export default function SkillPathRecommender({uid}: Props) {
                     key={level}
                     className="w-4 h-1.5 rounded-full"
                     style={{
-                      backgroundColor:
-                        i <= levelIndex ? "#FFB300" : "#333",
+                      backgroundColor: i <= levelIndex ? "#FFB300" : "#333",
                     }}
                   />
                 );
