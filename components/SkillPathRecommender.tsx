@@ -1,19 +1,17 @@
 // components/SkillPathRecommender.tsx
 //
-// "What should I learn next?" widget. Nothing runs automatically — the
-// AI call only fires when the user taps the button. Pulls the signed-in
-// user's completed sessions, in-progress sessions, and offered skills,
-// then asks the AI Skill Path Recommender for one next skill plus a
-// short natural-language reason (e.g. "Since you know Web Development
-// and UI/UX, try React next").
+// "What should I learn next?" widget. Pulls the signed-in user's
+// completed sessions, in-progress sessions, and offered skills, then
+// asks the AI Skill Path Recommender for one next skill plus a short
+// natural-language reason (e.g. "Since you know Web Development and
+// UI/UX, try React next").
 //
 // Drop this in anywhere a logged-in user is shown their own dashboard —
-// it's self-contained and fetches its own data from `uid`, but only
-// when asked to.
+// it's self-contained and fetches its own data from `uid`.
 
 import {Feather} from "@expo/vector-icons";
 import {useRouter} from "expo-router";
-import {useCallback, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {ActivityIndicator, Pressable, Text, View} from "react-native";
 import {
   fetchCompletedSessions,
@@ -27,19 +25,20 @@ type Props = {
   uid: string;
 };
 
-type LoadState = "idle" | "loading" | "ready" | "empty-history" | "error";
+type LoadState = "loading-history" | "ready" | "recommending" | "error";
 
 export default function SkillPathRecommender({uid}: Props) {
   const router = useRouter();
 
-  const [state, setState] = useState<LoadState>("idle");
+  const [state, setState] = useState<LoadState>("loading-history");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recommendation, setRecommendation] =
     useState<SkillPathRecommendation | null>(null);
+  const [hasHistory, setHasHistory] = useState(false);
 
   const generate = useCallback(async () => {
     setErrorMessage(null);
-    setState("loading");
+    setState((prev) => (prev === "loading-history" ? prev : "recommending"));
 
     try {
       const [completed, learning, offered] = await Promise.all([
@@ -65,9 +64,10 @@ export default function SkillPathRecommender({uid}: Props) {
         completedSkills.length > 0 ||
         learningSkills.length > 0 ||
         offeredSkills.length > 0;
+      setHasHistory(anyHistory);
 
       if (!anyHistory) {
-        setState("empty-history");
+        setState("ready");
         return;
       }
 
@@ -87,6 +87,10 @@ export default function SkillPathRecommender({uid}: Props) {
       setState("error");
     }
   }, [uid]);
+
+  useEffect(() => {
+    generate();
+  }, [generate]);
 
   function exploreSkill(skillName: string) {
     router.push({
@@ -117,25 +121,7 @@ export default function SkillPathRecommender({uid}: Props) {
         )}
       </View>
 
-      {/* Nothing has been requested yet — just an inviting prompt + button. */}
-      {state === "idle" && (
-        <View className="py-4 gap-4">
-          <Text className="text-sm text-text-muted leading-5">
-            Not sure what to learn next? We'll look at your learning
-            history and suggest one skill worth trying.
-          </Text>
-          <Pressable
-            onPress={generate}
-            className="self-start px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/20 flex-row items-center gap-2">
-            <Feather name="zap" size={13} color="#FFB300" />
-            <Text className="text-[10px] font-bold uppercase tracking-widest text-primary">
-              What should I learn next?
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-      {state === "loading" && (
+      {(state === "loading-history" || state === "recommending") && (
         <View className="py-6 items-center gap-2">
           <ActivityIndicator color="#FFB300" />
           <Text className="text-[11px] text-text-muted">
@@ -144,19 +130,12 @@ export default function SkillPathRecommender({uid}: Props) {
         </View>
       )}
 
-      {state === "empty-history" && (
-        <View className="py-4 gap-3">
+      {state === "ready" && !hasHistory && (
+        <View className="py-4">
           <Text className="text-sm text-text-muted leading-5">
             Complete a session or add a skill you offer, and we'll suggest a
             smart next skill to learn based on your history.
           </Text>
-          <Pressable
-            onPress={generate}
-            className="self-start px-4 py-2 rounded-xl border border-border bg-bg-light">
-            <Text className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
-              Check Again
-            </Text>
-          </Pressable>
         </View>
       )}
 
@@ -175,7 +154,7 @@ export default function SkillPathRecommender({uid}: Props) {
         </View>
       )}
 
-      {state === "ready" && recommendation && (
+      {state === "ready" && hasHistory && recommendation && (
         <View className="mt-3">
           <View className="flex-row items-center justify-between mb-2">
             <Text className="text-xl font-extralight text-text-primary">
